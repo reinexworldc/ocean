@@ -1,0 +1,143 @@
+.chat-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-top: 0;
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  justify-content: flex-start;
+  align-items: stretch;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.chat-wrapper {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  padding-top: 0;
+  box-sizing: border-box;
+}
+
+.chat-panel-heading {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 20px 0 32px;
+}
+
+.chat-title {
+  margin: 0;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-style: normal;
+  font-weight: 500;
+  font-size: 15px;
+  line-height: 18px;
+  color: #575656;
+  white-space: nowrap;
+  transform: translateX(15px);
+}
+
+.chat-container {
+  background-color: #f0f0f0;
+  border-radius: 15px 15px 0 0;
+  padding: 56px 32px 32px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-height: 0;
+}
+
+.chat-header-actions {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+}
+
+.ws-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #666666;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.ws-badge-icon {
+  width: 10px;
+  height: 10px;
+  display: block;
+}
+
+.message-row {
+  display: flex;
+  width: 100%;
+  margin-bottom: 18px;
+}
+
+.user-row {
+  justify-content: flex-end;
+}
+
+.assistant-row {
+  justify-content: flex-start;
+}
+
+.message {
+  max-width: 80%;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #333333;
+}
+
+.user-message {
+  margin-right: 64px;
+}
+
+.assistant-message {
+  margin-left: 64px;
+}
+
+.assistant-message p {
+  margin: 0;
+}
+
+.chat-actions {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+}
+
+.copy-btn {
+  background: none;
+  border: none;
+  color: #666666;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.copy-btn:hover {
+  color: #000000;
+}
+
+@media (max-width: 1080px) {
+  .chat-panel {
+    padding-top: 0;
+  }
+
+  .chat-wrapper {
+    max-width: none;
+  }
+}

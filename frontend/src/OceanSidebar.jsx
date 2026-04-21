@@ -1,0 +1,59 @@
+import './OceanSidebar.css';
+
+function ShortcutCommandIcon() {
+  return (
+    <svg
+      width="8"
+      height="8"
+      viewBox="0 0 8 8"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M2 0.75C1.30964 0.75 0.75 1.30964 0.75 2V2.5C0.75 3.19036 1.30964 3.75 2 3.75H2.5V4.25H2C1.30964 4.25 0.75 4.80964 0.75 5.5V6C0.75 6.69036 1.30964 7.25 2 7.25H2.5C3.19036 7.25 3.75 6.69036 3.75 6V5.5H4.25V6C4.25 6.69036 4.80964 7.25 5.5 7.25H6C6.69036 7.25 7.25 6.69036 7.25 6V5.5C7.25 4.80964 6.69036 4.25 6 4.25H5.5V3.75H6C6.69036 3.75 7.25 3.19036 7.25 2.5V2C7.25 1.30964 6.69036 0.75 6 0.75H5.5C4.80964 0.75 4.25 1.30964 4.25 2V2.5H3.75V2C3.75 1.30964 3.19036 0.75 2.5 0.75H2ZM2 1.75H2.5C2.63807 1.75 2.75 1.86193 2.75 2V2.5C2.75 2.63807 2.63807 2.75 2.5 2.75H2C1.86193 2.75 1.75 2.63807 1.75 2.5V2C1.75 1.86193 1.86193 1.75 2 1.75ZM5.5 1.75H6C6.13807 1.75 6.25 1.86193 6.25 2V2.5C6.25 2.63807 6.13807 2.75 6 2.75H5.5C5.36193 2.75 5.25 2.63807 5.25 2.5V2C5.25 1.86193 5.36193 1.75 5.5 1.75ZM3.75 3.75H4.25V4.25H3.75V3.75ZM2 5.25H2.5C2.63807 5.25 2.75 5.36193 2.75 5.5V6C2.75 6.13807 2.63807 6.25 2.5 6.25H2C1.86193 6.25 1.75 6.13807 1.75 6V5.5C1.75 5.36193 1.86193 5.25 2 5.25ZM5.5 5.25H6C6.13807 5.25 6.25 5.36193 6.25 5.5V6C6.25 6.13807 6.13807 6.25 6 6.25H5.5C5.36193 6.25 5.25 6.13807 5.25 6V5.5C5.25 5.36193 5.36193 5.25 5.5 5.25Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+function OceanSidebar({ chats, selectedChatTitle, onSelectChat }) {
+  return (
+    <aside className="ocean-sidebar" aria-label="Recent chats">
+      <div className="ocean-sidebar__header">
+        <span className="ocean-sidebar__title">NEW CHAT</span>
+
+        <div className="ocean-sidebar__shortcuts" aria-hidden="true">
+          <span className="ocean-sidebar__shortcutBox">
+            <ShortcutCommandIcon />
+          </span>
+          <span className="ocean-sidebar__shortcutBox ocean-sidebar__shortcutBox--text">
+            N
+          </span>
+        </div>
+      </div>
+
+      <div className="ocean-sidebar__divider" />
+
+      <div className="ocean-sidebar__list">
+        {chats.map((chat) => (
+          <button
+            type="button"
+            className={`ocean-sidebar__item${
+              chat.title === selectedChatTitle ? ' ocean-sidebar__item--active' : ''
+            }`}
+            key={chat.title}
+            onClick={() => onSelectChat(chat.title)}
+            aria-pressed={chat.title === selectedChatTitle}
+          >
+            <span className="ocean-sidebar__itemTitle">{chat.title}</span>
+            <span className="ocean-sidebar__itemTime">{chat.time}</span>
+          </button>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+export default OceanSidebar;

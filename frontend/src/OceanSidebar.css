@@ -1,0 +1,99 @@
+.ocean-sidebar {
+  width: 270px;
+  flex-shrink: 0;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+.ocean-sidebar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ocean-sidebar__title {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 13px;
+  color: #8b8b8b;
+}
+
+.ocean-sidebar__shortcuts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ocean-sidebar__shortcutBox {
+  width: 12px;
+  height: 12px;
+  background: #d6d4d4;
+  color: #8b8b8b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ocean-sidebar__shortcutBox--text {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 12px;
+}
+
+.ocean-sidebar__divider {
+  width: 100%;
+  border-top: 1px solid #8b8b8b;
+  margin-top: 6px;
+  margin-bottom: 20px;
+}
+
+.ocean-sidebar__list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.ocean-sidebar__item {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  color: #8b8b8b;
+}
+
+.ocean-sidebar__itemTitle {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 17px;
+  color: inherit;
+}
+
+.ocean-sidebar__itemTime {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 12px;
+  color: #7d7d7d;
+  white-space: nowrap;
+}
+
+.ocean-sidebar__item--active {
+  color: #000000;
+}
+
+.ocean-sidebar__item--active .ocean-sidebar__itemTime {
+  color: #000000;
+}
+
+@media (max-width: 1080px) {
+  .ocean-sidebar {
+    width: 100%;
+    margin-top: 0;
+  }
+}
