@@ -1,10 +1,15 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "NestJS backend service",
+  "private": true,
+  "main": "dist/main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node --env-file=.env dist/main.js",
+    "start:dev": "node --env-file=.env --import=tsx --watch src/main.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "wallet": "node --env-file=.env --import=tsx wallet.ts"
   },
   "keywords": [],
   "author": "",
@@ -12,6 +17,11 @@
   "type": "module",
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^10.3.0",
+    "@nestjs/common": "^11.1.19",
+    "@nestjs/core": "^11.1.19",
+    "@nestjs/platform-express": "^11.1.19",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   },
