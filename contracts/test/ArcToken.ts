@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { network } from "hardhat";
-import { parseUnits } from "viem";
+import { getAddress, parseUnits } from "viem";
 
 describe("ArcToken", async function () {
   const { viem } = await network.create();
@@ -20,7 +20,7 @@ describe("ArcToken", async function () {
 
     assert.equal(await token.read.name(), "Arc Test Token");
     assert.equal(await token.read.symbol(), "ATT");
-    assert.equal(await token.read.owner(), owner.account.address);
+    assert.equal(await token.read.owner(), getAddress(owner.account.address));
     assert.equal(await token.read.totalSupply(), initialSupply);
     assert.equal(
       await token.read.balanceOf([owner.account.address]),
