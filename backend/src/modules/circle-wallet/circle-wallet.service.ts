@@ -4,7 +4,6 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
-import { AccountType } from "@circle-fin/developer-controlled-wallets";
 import { type UserModel as User } from "../../generated/prisma/models/User.js";
 import {
   CircleWalletBlockchain,
@@ -25,6 +24,7 @@ import {
 const STARTER_FUNDING_EXTERNAL_PAYMENT_ID_PREFIX = "circle-testnet-starter-funding";
 const STARTER_FUNDING_CURRENCY = "USDC";
 const STARTER_FUNDING_AMOUNT_USD = "0";
+const CIRCLE_EOA_ACCOUNT_TYPE = "EOA";
 
 type FundingSummary = {
   status: "NOT_STARTED" | TransactionStatus;
@@ -106,7 +106,7 @@ export class CircleWalletService {
         walletSetId,
         blockchains: [DEFAULT_CIRCLE_WALLET_BLOCKCHAIN],
         count: 1,
-        accountType: AccountType.Eoa,
+        accountType: CIRCLE_EOA_ACCOUNT_TYPE,
         idempotencyKey: createCircleIdempotencyKey(),
       })
     ).data?.wallets?.[0];
