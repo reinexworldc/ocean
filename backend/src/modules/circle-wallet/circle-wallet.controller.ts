@@ -18,4 +18,9 @@ export class CircleWalletController {
   provisionMyCircleWallet(@CurrentUser() user: AuthenticatedUser) {
     return this.circleWalletService.provisionWalletForUser(user.id);
   }
+
+  @Post("fund")
+  fundMyCircleWallet(@CurrentUser() user: AuthenticatedUser) {
+    return this.circleWalletService.fundWalletForUser(user.id);
+  }
 }

@@ -9,12 +9,8 @@ export class AuthOnboardingService {
   constructor(private readonly circleWalletService: CircleWalletService) {}
 
   async ensureUserProvisioned(user: User) {
-    if (user.circleWalletId && user.circleWalletAddress && user.circleWalletBlockchain) {
-      return user;
-    }
+    this.logger.log(`Ensuring Circle wallet and starter funding for user ${user.id}.`);
 
-    this.logger.log(`Provisioning Circle wallet for user ${user.id}.`);
-
-    return this.circleWalletService.ensureWalletForUser(user.id);
+    return this.circleWalletService.ensureWalletAndFundingForUser(user.id);
   }
 }
