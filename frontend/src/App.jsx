@@ -45,6 +45,7 @@ function App() {
         isAuthenticated={walletSession.isAuthenticated}
         walletAddress={walletSession.walletAddress}
         walletState={walletSession.walletState}
+        walletError={walletSession.error}
       />
 
       <div className="content-shell">
@@ -66,6 +67,8 @@ function App() {
             messagesError={chats.messagesError}
             isAuthenticated={walletSession.isAuthenticated}
             isSendingMessage={chats.isSendingMessage}
+            walletState={walletSession.walletState}
+            walletError={walletSession.error}
           />
         </div>
       </div>
@@ -74,6 +77,8 @@ function App() {
         onSubmit={chats.sendMessage}
         disabled={!walletSession.isAuthenticated}
         isSending={chats.isSendingMessage}
+        walletState={walletSession.walletState}
+        walletError={walletSession.error}
       />
     </div>
   );

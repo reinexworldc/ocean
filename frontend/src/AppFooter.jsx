@@ -2,12 +2,38 @@ import { useLayoutEffect, useRef, useState } from 'react';
 
 import './AppFooter.css';
 
-function AppFooter({ onSubmit, disabled, isSending }) {
+function getPromptText(disabled, isSending, walletState) {
+  if (isSending) {
+    return 'Sending message...';
+  }
+
+  if (!disabled) {
+    return 'Ask Ocean...';
+  }
+
+  if (walletState === 'connecting') {
+    return 'Connecting wallet...';
+  }
+
+  if (walletState === 'authenticating') {
+    return 'Check wallet and sign message...';
+  }
+
+  if (walletState === 'readyToSign') {
+    return 'Finish wallet sign-in to chat...';
+  }
+
+  return 'Connect wallet to chat...';
+}
+
+function AppFooter({ onSubmit, disabled, isSending, walletState, walletError }) {
   const [value, setValue] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [caretOffset, setCaretOffset] = useState(0);
   const [submitError, setSubmitError] = useState('');
   const measureRef = useRef(null);
+  const promptText = getPromptText(disabled, isSending, walletState);
+  const displayError = submitError || (disabled ? walletError?.message ?? '' : '');
 
   useLayoutEffect(() => {
     if (!measureRef.current) {
@@ -68,7 +94,7 @@ function AppFooter({ onSubmit, disabled, isSending }) {
             />
             {value.length === 0 && (
               <span className="app-footer__prompt" aria-hidden="true">
-                {disabled ? 'Connect wallet to chat...' : 'Ask Ocean...'}
+                {promptText}
               </span>
             )}
             <span ref={measureRef} className="app-footer__inputMeasure" aria-hidden="true">
@@ -77,7 +103,7 @@ function AppFooter({ onSubmit, disabled, isSending }) {
           </div>
         </form>
 
-        {submitError ? <div className="app-footer__error">{submitError}</div> : null}
+        {displayError ? <div className="app-footer__error">{displayError}</div> : null}
       </div>
     </footer>
   );

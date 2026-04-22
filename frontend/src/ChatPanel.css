@@ -72,6 +72,11 @@
   line-height: 1.5;
 }
 
+.chat-empty-state__error {
+  margin-top: 8px;
+  color: #8b3a3a;
+}
+
 .chat-header-actions {
   position: absolute;
   top: 18px;

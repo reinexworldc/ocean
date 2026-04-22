@@ -8,6 +8,8 @@ function ChatPanel({
   messagesError,
   isAuthenticated,
   isSendingMessage,
+  walletState,
+  walletError,
 }) {
   const lastAssistantMessage = useMemo(
     () =>
@@ -45,7 +47,14 @@ function ChatPanel({
             {!isAuthenticated ? (
               <div className="message-row assistant-row">
                 <div className="message assistant-message chat-empty-state">
-                  <p>Connect your wallet and sign in to load your chat history.</p>
+                  <p>
+                    {walletState === 'readyToSign'
+                      ? 'Wallet connected. Finish SIWE sign-in to load your chat history.'
+                      : 'Connect your wallet and sign in to load your chat history.'}
+                  </p>
+                  {walletError?.message ? (
+                    <p className="chat-empty-state__error">{walletError.message}</p>
+                  ) : null}
                 </div>
               </div>
             ) : null}

@@ -44,6 +44,30 @@ function getWalletActionLabel(walletState) {
   return 'CONNECT WALLET';
 }
 
+function getWalletStatusMessage(walletState, walletError) {
+  if (walletError?.message) {
+    return walletError.message;
+  }
+
+  if (walletState === 'connecting') {
+    return 'Connecting wallet...';
+  }
+
+  if (walletState === 'authenticating') {
+    return 'Check your wallet and sign the SIWE message.';
+  }
+
+  if (walletState === 'readyToSign') {
+    return 'Wallet connected. Finish sign-in to unlock chat.';
+  }
+
+  if (walletState === 'connected') {
+    return 'Wallet ready for chat.';
+  }
+
+  return 'Connect a wallet to start chatting.';
+}
+
 function AppHeader({
   user,
   userStatus,
@@ -54,6 +78,7 @@ function AppHeader({
   isAuthenticated,
   walletAddress: connectedWalletAddress,
   walletState,
+  walletError,
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -66,6 +91,7 @@ function AppHeader({
   const displayName = useMemo(() => getDisplayName(user), [user]);
   const email = user?.email?.trim() ? user.email : 'NO EMAIL SET';
   const walletAddress = formatWalletAddress(connectedWalletAddress);
+  const walletStatusMessage = getWalletStatusMessage(walletState, walletError);
   const isWalletActionPending = walletState === 'connecting' || walletState === 'authenticating';
   const canTriggerWalletAction = walletState !== 'connected' && !isWalletActionPending;
   const isProfileReady = isAuthenticated && userStatus !== 'loading';
@@ -212,6 +238,13 @@ function AppHeader({
               <div className="section-title">EXTERNAL WALLET</div>
               <div className="section-secondary wallet-address">
                 <span className="wallet-address__value">{walletAddress}</span>
+              </div>
+              <div
+                className={`section-secondary wallet-status${
+                  walletError ? ' wallet-status--error' : ''
+                }`}
+              >
+                {walletStatusMessage}
               </div>
             </div>
             <button

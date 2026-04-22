@@ -295,6 +295,16 @@
   white-space: nowrap;
 }
 
+.wallet-status {
+  font-size: 11px;
+  line-height: 14px;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.wallet-status--error {
+  color: #b42318;
+}
+
 .credits-value {
   min-width: 22px;
   font-size: 18px;
