@@ -1,32 +1,126 @@
+import { useMemo } from 'react';
 import './ChatPanel.css';
 
-function ChatPanel({ title }) {
+function ChatPanel({
+  chat,
+  messages,
+  messagesStatus,
+  messagesError,
+  isAuthenticated,
+  isSendingMessage,
+}) {
+  const lastAssistantMessage = useMemo(
+    () =>
+      [...messages]
+        .reverse()
+        .find((message) => message.role === 'assistant' && message.status === 'completed') ?? null,
+    [messages]
+  );
+
+  async function handleCopyLastAnswer() {
+    if (!lastAssistantMessage?.content) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(lastAssistantMessage.content);
+    } catch {
+      // Clipboard failures should not break the chat UI.
+    }
+  }
+
   return (
     <div className="chat-panel">
-      <div className="chat-panel-heading">
-        <h2 className="chat-title">{title}</h2>
-      </div>
+      {chat?.title ? (
+        <div className="chat-panel-heading">
+          <h2 className="chat-title">{chat.title}</h2>
+        </div>
+      ) : null}
 
       <main className="main-content">
         <div className="chat-wrapper">
           <div className="chat-container">
-            <div className="chat-header-actions">
-            </div>
+            <div className="chat-header-actions" />
 
-            <div className="message-row user-row">
-              <div className="message user-message">
-                That's perfect! Give me summary for this
+            {!isAuthenticated ? (
+              <div className="message-row assistant-row">
+                <div className="message assistant-message chat-empty-state">
+                  <p>Connect your wallet and sign in to load your chat history.</p>
+                </div>
               </div>
-            </div>
+            ) : null}
 
-            <div className="message-row assistant-row">
-              <div className="message assistant-message">
-                <p>Sure! Here a few options:</p>
+            {isAuthenticated && !chat ? (
+              <div className="message-row assistant-row">
+                <div className="message assistant-message chat-empty-state">
+                  <p>Create a new chat from the sidebar to start the conversation.</p>
+                </div>
               </div>
-            </div>
+            ) : null}
+
+            {isAuthenticated && chat && messagesStatus === 'loading' && messages.length === 0 ? (
+              <div className="message-row assistant-row">
+                <div className="message assistant-message chat-empty-state">
+                  <p>Loading messages...</p>
+                </div>
+              </div>
+            ) : null}
+
+            {isAuthenticated && chat && messagesStatus === 'error' && messages.length === 0 ? (
+              <div className="message-row assistant-row">
+                <div className="message assistant-message chat-empty-state">
+                  <p>{messagesError?.message ?? 'Failed to load chat messages.'}</p>
+                </div>
+              </div>
+            ) : null}
+
+            {isAuthenticated &&
+            chat &&
+            messagesStatus !== 'loading' &&
+            messagesStatus !== 'error' &&
+            messages.length === 0 ? (
+              <div className="message-row assistant-row">
+                <div className="message assistant-message chat-empty-state">
+                  <p>Send the first message to generate a Gemini response.</p>
+                </div>
+              </div>
+            ) : null}
+
+            {messages.map((message) => (
+              <div
+                className={`message-row ${
+                  message.role === 'user' ? 'user-row' : 'assistant-row'
+                }`}
+                key={message.id}
+              >
+                <div
+                  className={`message ${
+                    message.role === 'user' ? 'user-message' : 'assistant-message'
+                  } ${
+                    message.status === 'failed'
+                      ? 'message--failed'
+                      : message.status === 'pending'
+                        ? 'message--pending'
+                        : ''
+                  }`}
+                >
+                  <p>{message.content}</p>
+                </div>
+              </div>
+            ))}
+
+            {isSendingMessage ? <div className="chat-status">Generating reply...</div> : null}
 
             <div className="chat-actions">
-              <button type="button" className="copy-btn" aria-label="Copy">
+              <button
+                type="button"
+                className="copy-btn"
+                aria-label="Copy"
+                onClick={() => {
+                  void handleCopyLastAnswer();
+                }}
+                disabled={!lastAssistantMessage}
+              >
                 <svg
                   width="16"
                   height="16"

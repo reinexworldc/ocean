@@ -18,11 +18,59 @@ function ShortcutCommandIcon() {
   );
 }
 
-function OceanSidebar({ chats, selectedChatTitle, onSelectChat }) {
+function formatRelativeTime(timestamp) {
+  if (!timestamp) {
+    return '';
+  }
+
+  const elapsedMs = Date.now() - new Date(timestamp).getTime();
+  const elapsedMinutes = Math.max(0, Math.floor(elapsedMs / 60000));
+
+  if (elapsedMinutes < 1) {
+    return 'just now';
+  }
+
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes}m ago`;
+  }
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) {
+    return `${elapsedHours}h ago`;
+  }
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  if (elapsedDays < 7) {
+    return `${elapsedDays}d ago`;
+  }
+
+  const elapsedWeeks = Math.floor(elapsedDays / 7);
+  return `${elapsedWeeks}w ago`;
+}
+
+function OceanSidebar({
+  chats,
+  chatsStatus,
+  chatsError,
+  selectedChatId,
+  onSelectChat,
+  onCreateChat,
+  isAuthenticated,
+  isCreatingChat,
+}) {
   return (
     <aside className="ocean-sidebar" aria-label="Recent chats">
       <div className="ocean-sidebar__header">
-        <span className="ocean-sidebar__title">NEW CHAT</span>
+        <button
+          type="button"
+          className="ocean-sidebar__newChatButton"
+          onClick={() => {
+            void onCreateChat();
+          }}
+          disabled={!isAuthenticated || isCreatingChat}
+        >
+          {isCreatingChat ? 'CREATING...' : 'NEW CHAT'}
+        </button>
 
         <div className="ocean-sidebar__shortcuts" aria-hidden="true">
           <span className="ocean-sidebar__shortcutBox">
@@ -37,18 +85,36 @@ function OceanSidebar({ chats, selectedChatTitle, onSelectChat }) {
       <div className="ocean-sidebar__divider" />
 
       <div className="ocean-sidebar__list">
+        {!isAuthenticated ? (
+          <div className="ocean-sidebar__emptyState">Connect your wallet to load chats.</div>
+        ) : null}
+
+        {isAuthenticated && chatsStatus === 'loading' ? (
+          <div className="ocean-sidebar__emptyState">Loading chats...</div>
+        ) : null}
+
+        {isAuthenticated && chatsStatus === 'error' ? (
+          <div className="ocean-sidebar__emptyState">
+            {chatsError?.message ?? 'Failed to load chats.'}
+          </div>
+        ) : null}
+
+        {isAuthenticated && chatsStatus !== 'loading' && chatsStatus !== 'error' && chats.length === 0 ? (
+          <div className="ocean-sidebar__emptyState">No chats yet. Start a new conversation.</div>
+        ) : null}
+
         {chats.map((chat) => (
           <button
             type="button"
             className={`ocean-sidebar__item${
-              chat.title === selectedChatTitle ? ' ocean-sidebar__item--active' : ''
+              chat.id === selectedChatId ? ' ocean-sidebar__item--active' : ''
             }`}
-            key={chat.title}
-            onClick={() => onSelectChat(chat.title)}
-            aria-pressed={chat.title === selectedChatTitle}
+            key={chat.id}
+            onClick={() => onSelectChat(chat.id)}
+            aria-pressed={chat.id === selectedChatId}
           >
             <span className="ocean-sidebar__itemTitle">{chat.title}</span>
-            <span className="ocean-sidebar__itemTime">{chat.time}</span>
+            <span className="ocean-sidebar__itemTime">{formatRelativeTime(chat.updatedAt)}</span>
           </button>
         ))}
       </div>

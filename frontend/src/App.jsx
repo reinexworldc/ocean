@@ -1,20 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import AppFooter from './AppFooter';
 import AppHeader from './AppHeader';
 import ChatPanel from './ChatPanel';
 import OceanSidebar from './OceanSidebar';
 import './App.css';
+import { useChats } from './hooks/useChats';
 import { useCurrentUserProfile } from './hooks/useCurrentUserProfile';
 import { useWalletSession } from './hooks/useWalletSession';
 
-const recentChats = [
-  { title: 'Moon Analyze', time: '15m ago' },
-  { title: 'General Analyze', time: '1h ago' },
-  { title: 'Rekt Analyze', time: '1week ago' },
-];
-
 function App() {
-  const [selectedChatTitle, setSelectedChatTitle] = useState(recentChats[0].title);
   const walletSession = useWalletSession();
   const {
     user,
@@ -23,6 +17,9 @@ function App() {
   } = useCurrentUserProfile({
     enabled: walletSession.isAuthenticated,
     userId: walletSession.user?.id ?? null,
+  });
+  const chats = useChats({
+    enabled: walletSession.isAuthenticated,
   });
 
   const currentUser = useMemo(() => {
@@ -35,11 +32,6 @@ function App() {
       ...(user ?? {}),
     };
   }, [user, walletSession.user]);
-
-  const selectedChat = useMemo(
-    () => recentChats.find((chat) => chat.title === selectedChatTitle) ?? recentChats[0],
-    [selectedChatTitle]
-  );
 
   return (
     <div className="app-container">
@@ -58,15 +50,31 @@ function App() {
       <div className="content-shell">
         <div className="content-layout">
           <OceanSidebar
-            chats={recentChats}
-            selectedChatTitle={selectedChat.title}
-            onSelectChat={setSelectedChatTitle}
+            chats={chats.chats}
+            chatsStatus={chats.chatsStatus}
+            chatsError={chats.chatsError}
+            selectedChatId={chats.selectedChatId}
+            onSelectChat={chats.selectChat}
+            onCreateChat={chats.createChat}
+            isAuthenticated={walletSession.isAuthenticated}
+            isCreatingChat={chats.isCreatingChat}
           />
-          <ChatPanel title={selectedChat.title} />
+          <ChatPanel
+            chat={chats.selectedChat}
+            messages={chats.messages}
+            messagesStatus={chats.messagesStatus}
+            messagesError={chats.messagesError}
+            isAuthenticated={walletSession.isAuthenticated}
+            isSendingMessage={chats.isSendingMessage}
+          />
         </div>
       </div>
 
-      <AppFooter />
+      <AppFooter
+        onSubmit={chats.sendMessage}
+        disabled={!walletSession.isAuthenticated}
+        isSending={chats.isSendingMessage}
+      />
     </div>
   );
 }

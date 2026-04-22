@@ -62,6 +62,16 @@
   min-height: 0;
 }
 
+.chat-empty-state {
+  color: #666666;
+}
+
+.chat-empty-state p {
+  color: #666666;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .chat-header-actions {
   position: absolute;
   top: 18px;
@@ -105,6 +115,12 @@
   color: #333333;
 }
 
+.message p {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .user-message {
   margin-right: 64px;
 }
@@ -115,6 +131,22 @@
 
 .assistant-message p {
   margin: 0;
+}
+
+.message--pending {
+  color: #7a7a7a;
+}
+
+.message--failed {
+  color: #8b3a3a;
+}
+
+.chat-status {
+  margin-top: auto;
+  padding-top: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #7a7a7a;
 }
 
 .chat-actions {
@@ -136,6 +168,11 @@
 
 .copy-btn:hover {
   color: #000000;
+}
+
+.copy-btn:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
 
 @media (max-width: 1080px) {

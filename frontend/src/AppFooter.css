@@ -13,6 +13,11 @@
   box-sizing: border-box;
 }
 
+.app-footer__form {
+  display: flex;
+  align-items: center;
+}
+
 .app-footer__inputContainer {
   position: relative;
   width: 100%;
@@ -50,6 +55,10 @@
   caret-color: transparent;
 }
 
+.app-footer__input:disabled {
+  cursor: not-allowed;
+}
+
 .app-footer__inputMeasure {
   position: absolute;
   top: 0;
@@ -79,6 +88,13 @@
   user-select: none;
 }
 
+.app-footer__error {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8b3a3a;
+}
+
 @keyframes app-footer-caret-blink {
   0%,
   49% {
@@ -99,5 +115,9 @@
 
   .app-footer__inputContainer {
     max-width: none;
+  }
+
+  .app-footer__form {
+    align-items: stretch;
   }
 }
