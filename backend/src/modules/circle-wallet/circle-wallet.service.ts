@@ -5,6 +5,15 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
+import { privateKeyToAccount } from "viem/accounts";
+import {
+  createPublicClient,
+  createWalletClient,
+  defineChain,
+  getAddress,
+  http,
+  parseUnits,
+} from "viem";
 import { type UserModel as User } from "../../generated/prisma/models/User.js";
 import {
   CircleWalletBlockchain,
@@ -24,8 +33,31 @@ import {
 
 const STARTER_FUNDING_EXTERNAL_PAYMENT_ID_PREFIX = "circle-testnet-starter-funding";
 const STARTER_FUNDING_CURRENCY = "USDC";
-const STARTER_FUNDING_AMOUNT_USD = "0";
+const STARTER_FUNDING_AMOUNT_USD = "0.03";
+const STARTER_FUNDING_DECIMALS = 18;
 const CIRCLE_EOA_ACCOUNT_TYPE = "EOA";
+const DEFAULT_ARC_TESTNET_RPC_URL = "https://rpc.testnet.arc.network";
+const ARC_TESTNET_CHAIN = defineChain({
+  id: 5_042_002,
+  name: "Arc Testnet",
+  nativeCurrency: {
+    name: STARTER_FUNDING_CURRENCY,
+    symbol: STARTER_FUNDING_CURRENCY,
+    decimals: STARTER_FUNDING_DECIMALS,
+  },
+  rpcUrls: {
+    default: {
+      http: [DEFAULT_ARC_TESTNET_RPC_URL],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "ArcScan",
+      url: "https://testnet.arcscan.app",
+    },
+  },
+  testnet: true,
+});
 
 type FundingSummary = {
   status: "NOT_STARTED" | TransactionStatus;
@@ -146,6 +178,8 @@ export class CircleWalletService {
     const existingTransaction = await this.findStarterFundingTransaction(user.id);
     const walletAddress = user.circleWalletAddress!;
     const blockchain = this.toCircleBlockchain(user.circleWalletBlockchain!);
+    const { account, publicClient, walletClient } = this.createArcFundingClients();
+    const transferAmount = parseUnits(STARTER_FUNDING_AMOUNT_USD, STARTER_FUNDING_DECIMALS);
 
     if (
       existingTransaction &&
@@ -161,10 +195,13 @@ export class CircleWalletService {
       walletId: user.circleWalletId,
       walletAddress,
       blockchain,
-      requestedAssets: {
-        native: false,
-        usdc: true,
-        eurc: false,
+      fundingMethod: "ARC_NATIVE_TRANSFER",
+      sourceWalletAddress: account.address,
+      amount: {
+        currency: STARTER_FUNDING_CURRENCY,
+        usd: STARTER_FUNDING_AMOUNT_USD,
+        raw: transferAmount.toString(),
+        decimals: STARTER_FUNDING_DECIMALS,
       },
       lastAttemptAt: new Date().toISOString(),
     };
@@ -178,7 +215,7 @@ export class CircleWalletService {
             walletAddress,
             amountUsd: STARTER_FUNDING_AMOUNT_USD,
             currency: STARTER_FUNDING_CURRENCY,
-            provider: TransactionProvider.CIRCLE,
+            provider: TransactionProvider.MANUAL,
             externalPaymentId: this.createStarterFundingExternalPaymentId(user.id),
             status: TransactionStatus.PENDING,
             metadata,
@@ -190,7 +227,7 @@ export class CircleWalletService {
             walletAddress,
             amountUsd: STARTER_FUNDING_AMOUNT_USD,
             currency: STARTER_FUNDING_CURRENCY,
-            provider: TransactionProvider.CIRCLE,
+            provider: TransactionProvider.MANUAL,
             externalPaymentId: this.createStarterFundingExternalPaymentId(user.id),
             status: TransactionStatus.PENDING,
             metadata,
@@ -198,20 +235,20 @@ export class CircleWalletService {
         });
 
     try {
-      const client = await createCircleWalletClient({
-        log: (message, payload) => this.logger.log(this.formatLogMessage(message, payload)),
-      });
+      this.logger.log(
+        `Sending starter ${STARTER_FUNDING_AMOUNT_USD} ${STARTER_FUNDING_CURRENCY} to user ${user.id}.`,
+      );
 
-      this.logger.log(`Requesting starter USDC funding for user ${user.id}.`);
-
-      const response = await client.requestTestnetTokens({
-        address: walletAddress,
-        blockchain,
-        native: false,
-        usdc: true,
-        eurc: false,
+      const hash = await walletClient.sendTransaction({
+        account,
+        chain: ARC_TESTNET_CHAIN,
+        to: getAddress(walletAddress),
+        value: transferAmount,
       });
-      const requestSucceeded = response.status >= 200 && response.status < 300;
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash,
+      });
+      const requestSucceeded = receipt.status === "success";
 
       return this.prisma.transaction.update({
         where: {
@@ -221,17 +258,20 @@ export class CircleWalletService {
           status: requestSucceeded ? TransactionStatus.COMPLETED : TransactionStatus.FAILED,
           metadata: {
             ...metadata,
-            response: {
-              status: response.status,
-              statusText: response.statusText,
+            transfer: {
+              hash,
+              status: receipt.status,
+              blockNumber: receipt.blockNumber.toString(),
+              gasUsed: receipt.gasUsed.toString(),
+              explorerUrl: `${ARC_TESTNET_CHAIN.blockExplorers.default.url}/tx/${hash}`,
             },
           },
         },
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown Circle funding error.";
+      const message = error instanceof Error ? error.message : "Unknown ARC funding error.";
 
-      this.logger.error(`Starter USDC funding failed for user ${user.id}.`, error);
+      this.logger.error(`Starter ARC funding failed for user ${user.id}.`, error);
 
       return this.prisma.transaction.update({
         where: {
@@ -285,7 +325,6 @@ export class CircleWalletService {
     return this.prisma.transaction.findFirst({
       where: {
         userId,
-        provider: TransactionProvider.CIRCLE,
         externalPaymentId: this.createStarterFundingExternalPaymentId(userId),
       },
       orderBy: {
@@ -351,10 +390,41 @@ export class CircleWalletService {
       : {
           status: "NOT_STARTED",
           currency: STARTER_FUNDING_CURRENCY,
-          provider: TransactionProvider.CIRCLE,
+          provider: TransactionProvider.MANUAL,
           transactionId: null,
           externalPaymentId: null,
         };
+  }
+
+  private createArcFundingClients() {
+    const rpcUrl = process.env.ARC_TESTNET_RPC_URL?.trim() || DEFAULT_ARC_TESTNET_RPC_URL;
+    const privateKey = this.requireArcStarterFundingPrivateKey();
+    const account = privateKeyToAccount(privateKey);
+    const transport = http(rpcUrl);
+
+    return {
+      account,
+      publicClient: createPublicClient({
+        chain: ARC_TESTNET_CHAIN,
+        transport,
+      }),
+      walletClient: createWalletClient({
+        account,
+        chain: ARC_TESTNET_CHAIN,
+        transport,
+      }),
+    };
+  }
+
+  private requireArcStarterFundingPrivateKey(): `0x${string}` {
+    const privateKey = process.env.ARC_TESTNET_PRIVATE_KEY?.trim();
+    if (!privateKey) {
+      throw new InternalServerErrorException(
+        "ARC_TESTNET_PRIVATE_KEY is required to send starter funding.",
+      );
+    }
+
+    return (privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`) as `0x${string}`;
   }
 
   private createStarterFundingExternalPaymentId(userId: string) {

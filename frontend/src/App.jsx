@@ -4,6 +4,7 @@ import AppHeader from './AppHeader';
 import ChatPanel from './ChatPanel';
 import OceanSidebar from './OceanSidebar';
 import './App.css';
+import { useArcWalletBalance } from './hooks/useArcWalletBalance';
 import { useChats } from './hooks/useChats';
 import { useCurrentUserProfile } from './hooks/useCurrentUserProfile';
 import { useWalletSession } from './hooks/useWalletSession';
@@ -32,6 +33,10 @@ function App() {
       ...(user ?? {}),
     };
   }, [user, walletSession.user]);
+  const arcWalletBalance = useArcWalletBalance({
+    enabled: walletSession.isAuthenticated,
+    walletAddress: currentUser?.circleWalletAddress ?? null,
+  });
 
   return (
     <div className="app-container">
@@ -46,6 +51,8 @@ function App() {
         walletAddress={walletSession.walletAddress}
         walletState={walletSession.walletState}
         walletError={walletSession.error}
+        arcWalletBalance={arcWalletBalance.balance}
+        arcWalletBalanceStatus={arcWalletBalance.status}
       />
 
       <div className="content-shell">

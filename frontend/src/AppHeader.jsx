@@ -60,12 +60,26 @@ function getWalletStatusMessage(walletState, walletError) {
   if (walletState === 'readyToSign') {
     return 'Wallet connected. Finish sign-in to unlock chat.';
   }
+}
 
-  if (walletState === 'connected') {
-    return 'Wallet ready for chat.';
+function formatUsdcBalance(balance, status) {
+  if (status === 'loading') {
+    return '...';
   }
 
-  return 'Connect a wallet to start chatting.';
+  if (!balance?.formatted) {
+    return '--';
+  }
+
+  const numericBalance = Number.parseFloat(balance.formatted);
+  if (!Number.isFinite(numericBalance)) {
+    return '--';
+  }
+
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 4,
+  }).format(numericBalance);
 }
 
 function AppHeader({
@@ -79,6 +93,8 @@ function AppHeader({
   walletAddress: connectedWalletAddress,
   walletState,
   walletError,
+  arcWalletBalance,
+  arcWalletBalanceStatus,
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -92,6 +108,7 @@ function AppHeader({
   const email = user?.email?.trim() ? user.email : 'NO EMAIL SET';
   const walletAddress = formatWalletAddress(connectedWalletAddress);
   const walletStatusMessage = getWalletStatusMessage(walletState, walletError);
+  const formattedUsdcBalance = formatUsdcBalance(arcWalletBalance, arcWalletBalanceStatus);
   const isWalletActionPending = walletState === 'connecting' || walletState === 'authenticating';
   const canTriggerWalletAction = walletState !== 'connected' && !isWalletActionPending;
   const isProfileReady = isAuthenticated && userStatus !== 'loading';
@@ -260,8 +277,8 @@ function AppHeader({
 
           <div className="account-panel__section account-panel__section--credits">
             <div className="account-panel__section-copy account-panel__section-copy--credits">
-              <div className="section-primary credits-value">74</div>
-              <div className="credits-title">CREDITS LEFT</div>
+              <div className="section-primary credits-value">${formattedUsdcBalance}</div>
+              <div className="credits-title">USDC ON ARC</div>
             </div>
             <img src={arrowUpIcon} alt="" aria-hidden="true" className="section-action-icon" />
           </div>
