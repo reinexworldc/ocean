@@ -13,6 +13,8 @@
   justify-content: flex-start;
   align-items: stretch;
   min-width: 0;
+  padding-top: 36px;
+  box-sizing: border-box;
   overflow-y: auto;
 }
 
