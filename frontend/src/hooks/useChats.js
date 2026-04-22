@@ -33,6 +33,7 @@ export function useChats({ enabled = true } = {}) {
   const [messagesErrorByChatId, setMessagesErrorByChatId] = useState({});
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [agentActionsByMessageId, setAgentActionsByMessageId] = useState({});
 
   const loadChats = useCallback(async () => {
     if (!enabled) {
@@ -212,6 +213,13 @@ export function useChats({ enabled = true } = {}) {
           ],
         }));
 
+        if (Array.isArray(response.agentActions) && response.agentActions.length > 0) {
+          setAgentActionsByMessageId((currentState) => ({
+            ...currentState,
+            [response.assistantMessage.id]: response.agentActions,
+          }));
+        }
+
         return response;
       } catch (requestError) {
         if (activeChatId && optimisticUserMessageId && optimisticAssistantMessageId) {
@@ -250,6 +258,7 @@ export function useChats({ enabled = true } = {}) {
       setMessagesErrorByChatId({});
       setIsCreatingChat(false);
       setIsSendingMessage(false);
+      setAgentActionsByMessageId({});
       return;
     }
 
@@ -303,6 +312,7 @@ export function useChats({ enabled = true } = {}) {
     messagesError,
     isCreatingChat,
     isSendingMessage,
+    agentActionsByMessageId,
     selectChat: handleSelectChat,
     createChat: handleCreateChat,
     reloadChats: loadChats,

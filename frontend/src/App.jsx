@@ -1,10 +1,10 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import AppFooter from './AppFooter';
 import AppHeader from './AppHeader';
 import ChatPanel from './ChatPanel';
 import OceanSidebar from './OceanSidebar';
 import './App.css';
-import { useArcWalletBalance } from './hooks/useArcWalletBalance';
+import { useCircleWallet } from './hooks/useCircleWallet';
 import { useChats } from './hooks/useChats';
 import { useCurrentUserProfile } from './hooks/useCurrentUserProfile';
 import { useWalletSession } from './hooks/useWalletSession';
@@ -33,10 +33,20 @@ function App() {
       ...(user ?? {}),
     };
   }, [user, walletSession.user]);
-  const arcWalletBalance = useArcWalletBalance({
+  const circleWallet = useCircleWallet({
     enabled: walletSession.isAuthenticated,
-    walletAddress: currentUser?.circleWalletAddress ?? null,
   });
+
+  const sendMessage = useCallback(
+    async (content) => {
+      const response = await chats.sendMessage(content);
+      if (response?.agentActions?.length > 0) {
+        void circleWallet.reload();
+      }
+      return response;
+    },
+    [chats, circleWallet],
+  );
 
   return (
     <div className="app-container">
@@ -51,8 +61,8 @@ function App() {
         walletAddress={walletSession.walletAddress}
         walletState={walletSession.walletState}
         walletError={walletSession.error}
-        arcWalletBalance={arcWalletBalance.balance}
-        arcWalletBalanceStatus={arcWalletBalance.status}
+        arcWalletBalance={circleWallet.usdcBalance}
+        arcWalletBalanceStatus={circleWallet.status}
       />
 
       <div className="content-shell">
@@ -76,12 +86,13 @@ function App() {
             isSendingMessage={chats.isSendingMessage}
             walletState={walletSession.walletState}
             walletError={walletSession.error}
+            agentActionsByMessageId={chats.agentActionsByMessageId}
           />
         </div>
       </div>
 
       <AppFooter
-        onSubmit={chats.sendMessage}
+        onSubmit={sendMessage}
         disabled={!walletSession.isAuthenticated}
         isSending={chats.isSendingMessage}
         walletState={walletSession.walletState}

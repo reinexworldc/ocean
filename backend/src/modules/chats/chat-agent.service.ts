@@ -6,6 +6,7 @@ import { type HistoryPeriod, paidApiCatalog } from "../payments/paid-api-catalog
 type ExecutedAgentAction = {
   type: PlannedPremiumAction["type"];
   endpoint: string;
+  amountUsd: string;
   transactionId: string;
   settlementTransaction: string;
   paymentNetwork: string;
@@ -83,6 +84,7 @@ export class ChatAgentService {
         return {
           type: action.type,
           endpoint,
+          amountUsd: paidApiCatalog.getMarketOverview.priceUsd,
           transactionId: response.transactionId,
           settlementTransaction: response.settlementTransaction,
           paymentNetwork: response.paymentNetwork,
@@ -105,6 +107,7 @@ export class ChatAgentService {
         return {
           type: action.type,
           endpoint,
+          amountUsd: paidApiCatalog.getTokenDetails.priceUsd,
           transactionId: response.transactionId,
           settlementTransaction: response.settlementTransaction,
           paymentNetwork: response.paymentNetwork,
@@ -128,6 +131,7 @@ export class ChatAgentService {
         return {
           type: action.type,
           endpoint,
+          amountUsd: paidApiCatalog.getTokenHistory.priceUsd,
           transactionId: response.transactionId,
           settlementTransaction: response.settlementTransaction,
           paymentNetwork: response.paymentNetwork,
@@ -153,6 +157,7 @@ export class ChatAgentService {
         return {
           type: action.type,
           endpoint,
+          amountUsd: paidApiCatalog.getWalletPortfolio.priceUsd,
           transactionId: response.transactionId,
           settlementTransaction: response.settlementTransaction,
           paymentNetwork: response.paymentNetwork,

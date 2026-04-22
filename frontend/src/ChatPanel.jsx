@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import './ChatPanel.css';
+import AgentActionsPanel from './AgentActionsPanel';
 
 function ChatPanel({
   chat,
@@ -10,6 +11,7 @@ function ChatPanel({
   isSendingMessage,
   walletState,
   walletError,
+  agentActionsByMessageId,
 }) {
   const lastAssistantMessage = useMemo(
     () =>
@@ -96,29 +98,32 @@ function ChatPanel({
             ) : null}
 
             {messages.map((message) => (
-              <div
-                className={`message-row ${
-                  message.role === 'user' ? 'user-row' : 'assistant-row'
-                }`}
-                key={message.id}
-              >
+              <div key={message.id}>
                 <div
-                  className={`message ${
-                    message.role === 'user' ? 'user-message' : 'assistant-message'
-                  } ${
-                    message.status === 'failed'
-                      ? 'message--failed'
-                      : message.status === 'pending'
-                        ? 'message--pending'
-                        : ''
+                  className={`message-row ${
+                    message.role === 'user' ? 'user-row' : 'assistant-row'
                   }`}
                 >
-                  <p>{message.content}</p>
+                  <div
+                    className={`message ${
+                      message.role === 'user' ? 'user-message' : 'assistant-message'
+                    } ${
+                      message.status === 'failed'
+                        ? 'message--failed'
+                        : message.status === 'pending'
+                          ? 'message--pending'
+                          : ''
+                    }`}
+                  >
+                    <p>{message.content}</p>
+                  </div>
                 </div>
+
+                {message.role === 'assistant' && agentActionsByMessageId?.[message.id] ? (
+                  <AgentActionsPanel actions={agentActionsByMessageId[message.id]} />
+                ) : null}
               </div>
             ))}
-
-            {isSendingMessage ? <div className="chat-status">Generating reply...</div> : null}
 
             <div className="chat-actions">
               <button

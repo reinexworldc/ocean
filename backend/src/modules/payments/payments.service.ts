@@ -6,10 +6,11 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from "@nestjs/common";
+import { registerBatchScheme } from "@circle-fin/x402-batching/client";
 import { x402Client } from "@x402/core/client";
 import { x402HTTPClient } from "@x402/core/http";
-import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
-import { createPublicClient, http } from "viem";
+import { ExactEvmScheme, authorizationTypes, toClientEvmSigner } from "@x402/evm";
+import { createPublicClient, http, verifyTypedData } from "viem";
 import { Prisma } from "../../generated/prisma/client.js";
 import { TransactionProvider, TransactionStatus } from "../../generated/prisma/enums.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
@@ -69,12 +70,14 @@ export class PaymentsService {
       );
     }
 
-    const x402HttpClient = new x402HTTPClient(
-      new x402Client().register(
-        DEFAULT_X402_NETWORK,
-        new ExactEvmScheme(await this.createCircleSigner(user.circleWalletId!, user.circleWalletAddress!)),
-      ),
-    );
+    const signer = await this.createCircleSigner(user.circleWalletId!, user.circleWalletAddress!);
+    const client = new x402Client();
+    registerBatchScheme(client, {
+      signer,
+      networks: [DEFAULT_X402_NETWORK],
+      fallbackScheme: new ExactEvmScheme(signer),
+    });
+    const x402HttpClient = new x402HTTPClient(client);
     const paymentRequired = x402HttpClient.getPaymentRequiredResponse((name) =>
       unsignedResponse.headers.get(name),
     );
@@ -106,6 +109,10 @@ export class PaymentsService {
 
     try {
       const paymentPayload = await x402HttpClient.createPaymentPayload(paymentRequired);
+      const signatureDiagnostics = await this.buildPaymentSignatureDiagnostics(
+        paymentPayload,
+        user.circleWalletAddress!,
+      );
       const paidResponse = await fetch(requestUrl, {
         method: input.method,
         headers: {
@@ -114,8 +121,21 @@ export class PaymentsService {
         },
         body: input.body ? JSON.stringify(input.body) : undefined,
       });
-      const settlement = x402HttpClient.getPaymentSettleResponse((name) => paidResponse.headers.get(name));
       const rawPaidBody = await paidResponse.text();
+      const settlementHeader =
+        paidResponse.headers.get("PAYMENT-RESPONSE") || paidResponse.headers.get("X-PAYMENT-RESPONSE");
+
+      if (!settlementHeader) {
+        const retryPaymentRequired = this.readPaymentRequiredFromResponse(x402HttpClient, paidResponse, rawPaidBody);
+
+        throw new BadGatewayException(
+          `Paid request did not include a payment settlement header. Status: ${paidResponse.status}. Body: ${rawPaidBody.trim().slice(0, 500)}. Retry challenge: ${this.toJsonString(
+            retryPaymentRequired ?? {},
+          )}. Signature diagnostics: ${this.toJsonString(signatureDiagnostics)}`,
+        );
+      }
+
+      const settlement = x402HttpClient.getPaymentSettleResponse((name) => paidResponse.headers.get(name));
       settlementResult = settlement;
 
       await this.prisma.transaction.update({
@@ -284,6 +304,138 @@ export class PaymentsService {
     return JSON.stringify(value, (_key, currentValue) =>
       typeof currentValue === "bigint" ? currentValue.toString() : currentValue,
     );
+  }
+
+  private readPaymentRequiredFromResponse(
+    x402HttpClient: x402HTTPClient,
+    response: Response,
+    rawBody: string,
+  ) {
+    const paymentRequiredHeader = response.headers.get("PAYMENT-REQUIRED");
+
+    if (!paymentRequiredHeader && response.status !== 402) {
+      return null;
+    }
+
+    try {
+      const parsedBody = rawBody ? (JSON.parse(rawBody) as unknown) : undefined;
+      const paymentRequired = x402HttpClient.getPaymentRequiredResponse(
+        (name) => response.headers.get(name),
+        parsedBody,
+      ) as Record<string, unknown>;
+
+      return {
+        error: paymentRequired.error ?? null,
+        invalidReason: paymentRequired.invalidReason ?? null,
+        invalidMessage: paymentRequired.invalidMessage ?? null,
+        accepts: Array.isArray(paymentRequired.accepts)
+          ? (paymentRequired.accepts as unknown[]).slice(0, 1)
+          : [],
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async buildPaymentSignatureDiagnostics(paymentPayload: unknown, expectedAddress: string) {
+    const payloadRecord =
+      paymentPayload && typeof paymentPayload === "object" && !Array.isArray(paymentPayload)
+        ? (paymentPayload as Record<string, unknown>)
+        : null;
+    const accepted =
+      payloadRecord?.accepted && typeof payloadRecord.accepted === "object" && !Array.isArray(payloadRecord.accepted)
+        ? (payloadRecord.accepted as Record<string, unknown>)
+        : null;
+    const payload =
+      payloadRecord?.payload && typeof payloadRecord.payload === "object" && !Array.isArray(payloadRecord.payload)
+        ? (payloadRecord.payload as Record<string, unknown>)
+        : null;
+    const authorization =
+      payload?.authorization && typeof payload.authorization === "object" && !Array.isArray(payload.authorization)
+        ? (payload.authorization as Record<string, unknown>)
+        : null;
+    const signature = typeof payload?.signature === "string" ? payload.signature : null;
+
+    if (!accepted || !authorization || !signature) {
+      return {
+        available: false,
+      };
+    }
+
+    const chainId = this.getChainIdFromNetwork(accepted.network);
+    const asset = typeof accepted.asset === "string" ? accepted.asset : null;
+    const extra =
+      accepted.extra && typeof accepted.extra === "object" && !Array.isArray(accepted.extra)
+        ? (accepted.extra as Record<string, unknown>)
+        : null;
+    const name = typeof extra?.name === "string" ? extra.name : null;
+    const version = typeof extra?.version === "string" ? extra.version : null;
+    const verifyingContract =
+      typeof extra?.verifyingContract === "string" ? extra.verifyingContract : asset;
+
+    if (!chainId || !verifyingContract || typeof name !== "string" || typeof version !== "string") {
+      return {
+        available: false,
+        reason: "missing_exact_evm_context",
+      };
+    }
+
+    try {
+      const isValid = await verifyTypedData({
+        address: expectedAddress as `0x${string}`,
+        domain: {
+          name,
+          version,
+          chainId,
+          verifyingContract: verifyingContract as `0x${string}`,
+        },
+        types: {
+          EIP712Domain: this.buildEip712DomainTypes({
+            name,
+            version,
+            chainId,
+            verifyingContract,
+          }),
+          ...authorizationTypes,
+        },
+        primaryType: "TransferWithAuthorization",
+        message: {
+          from: String(authorization.from) as `0x${string}`,
+          to: String(authorization.to) as `0x${string}`,
+          value: BigInt(String(authorization.value)),
+          validAfter: BigInt(String(authorization.validAfter)),
+          validBefore: BigInt(String(authorization.validBefore)),
+          nonce: String(authorization.nonce) as `0x${string}`,
+        },
+        signature: signature as `0x${string}`,
+      } as never);
+
+      return {
+        available: true,
+        isValid,
+        expectedAddress,
+        signerAddress: authorization.from ?? null,
+        signaturePrefix: signature.slice(0, 18),
+      };
+    } catch (error) {
+      return {
+        available: true,
+        isValid: false,
+        expectedAddress,
+        signerAddress: authorization.from ?? null,
+        signaturePrefix: signature.slice(0, 18),
+        verifyError: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private getChainIdFromNetwork(value: unknown) {
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    const match = value.match(/^eip155:(\d+)$/u);
+    return match?.[1] ? Number.parseInt(match[1], 10) : null;
   }
 
   private toCircleTypedData(input: {
