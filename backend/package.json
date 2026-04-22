@@ -6,6 +6,10 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "postinstall": "prisma generate",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
     "start": "node --env-file=.env dist/main.js",
     "start:dev": "node --env-file=.env --import=tsx --watch src/main.ts",
     "typecheck": "tsc -p tsconfig.json",
@@ -21,9 +25,13 @@
     "@nestjs/common": "^11.1.19",
     "@nestjs/core": "^11.1.19",
     "@nestjs/platform-express": "^11.1.19",
+    "@prisma/adapter-better-sqlite3": "^7.7.0",
+    "@prisma/client": "^7.7.0",
     "@x402/core": "^2.10.0",
     "@x402/evm": "^2.10.0",
     "@x402/express": "^2.10.0",
+    "better-sqlite3": "^12.9.0",
+    "dotenv": "^17.4.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "tsx": "^4.21.0",
@@ -31,6 +39,7 @@
     "viem": "^2.48.2"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0"
+    "@types/node": "^25.6.0",
+    "prisma": "^7.7.0"
   }
 }

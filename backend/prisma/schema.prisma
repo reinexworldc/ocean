@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum CircleWalletBlockchain {
+  ARC_TESTNET
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum MessageStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum TransactionProvider {
+  CIRCLE
+  X402
+  MANUAL
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id                     String                  @id @default(cuid())
+  walletAddress          String                  @unique
+  displayName            String?
+  email                  String?
+  avatarUrl              String?
+  circleWalletId         String?                 @unique
+  circleWalletAddress    String?                 @unique
+  circleWalletBlockchain CircleWalletBlockchain?
+  chats                  Chat[]
+  transactions           Transaction[]
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  @@index([createdAt])
+}
+
+model Chat {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+  transactions Transaction[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId, createdAt])
+}
+
+model Message {
+  id        String        @id @default(cuid())
+  chatId    String
+  role      MessageRole
+  content   String
+  status    MessageStatus @default(COMPLETED)
+  chat      Chat          @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@index([chatId, createdAt])
+}
+
+model Transaction {
+  id                String              @id @default(cuid())
+  userId            String
+  chatId            String?
+  walletAddress     String
+  amountUsd         Decimal
+  currency          String
+  provider          TransactionProvider
+  externalPaymentId String?
+  status            TransactionStatus   @default(PENDING)
+  metadata          Json?
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chat              Chat?               @relation(fields: [chatId], references: [id], onDelete: SetNull)
+  createdAt         DateTime            @default(now())
+
+  @@index([userId, createdAt])
+  @@index([chatId])
+  @@index([walletAddress])
+}

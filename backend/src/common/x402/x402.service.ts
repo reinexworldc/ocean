@@ -17,8 +17,6 @@ type NestHttpRequest = {
 
 @Injectable()
 export class X402Service {
-  // Circle's batching SDK uses a structurally compatible facilitator shape,
-  // but its published TypeScript interface is narrower than @x402/core expects.
   private readonly facilitatorClients: FacilitatorClient[] = [
     new HTTPFacilitatorClient({
       url: process.env.X402_FACILITATOR_URL ?? DEFAULT_X402_FACILITATOR_URL,
