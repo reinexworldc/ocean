@@ -285,3 +285,4 @@ package-lock.json
 /lib/
 backend/dist/
 backend/output/
+readitllm.md
