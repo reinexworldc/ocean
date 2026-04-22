@@ -31,14 +31,17 @@
     "@x402/evm": "^2.10.0",
     "@x402/express": "^2.10.0",
     "better-sqlite3": "^12.9.0",
+    "cookie-parser": "^1.4.7",
     "dotenv": "^17.4.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
+    "siwe": "^3.0.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "viem": "^2.48.2"
   },
   "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
     "@types/node": "^25.6.0",
     "prisma": "^7.7.0"
   }

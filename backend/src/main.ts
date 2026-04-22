@@ -1,7 +1,9 @@
 import "reflect-metadata";
+import cookieParser from "cookie-parser";
 import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module.js";
+import { resolveFrontendOrigins } from "./modules/auth/auth.config.js";
 
 function resolvePort() {
   const rawPort = process.env.PORT ?? "3000";
@@ -17,9 +19,14 @@ function resolvePort() {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const port = resolvePort();
+  const allowedOrigins = resolveFrontendOrigins();
 
   app.setGlobalPrefix("api");
-  app.enableCors();
+  app.use(cookieParser());
+  app.enableCors({
+    origin: allowedOrigins,
+    credentials: true,
+  });
 
   await app.listen(port);
 

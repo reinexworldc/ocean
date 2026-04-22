@@ -112,6 +112,10 @@ export function parseCliArgs(argv: string[]): ParsedCliEntry[] {
     }
 
     const [, key, value] = match;
+    if (!key) {
+      throw new Error(`Argument key is missing: ${arg}`);
+    }
+
     return {
       key,
       value: value ?? "",

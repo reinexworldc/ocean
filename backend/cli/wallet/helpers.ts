@@ -1,30 +1,26 @@
 /// <reference types="node" />
 
-import crypto from "node:crypto";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import {
-  initiateDeveloperControlledWalletsClient,
-  registerEntitySecretCiphertext,
-  type Blockchain,
-} from "@circle-fin/developer-controlled-wallets";
+import { type Blockchain } from "@circle-fin/developer-controlled-wallets";
 import {
   createScriptLogger,
   getCliValue,
   hasCliFlag,
   parseCliArgs,
-  upsertEnvValue as upsertEnvVariable,
   type ParsedCliEntry,
   type ScriptLogger,
 } from "../script-helpers.js";
+import {
+  OUTPUT_DIR,
+  DEFAULT_CIRCLE_WALLET_BLOCKCHAIN,
+  assertSupportedCircleTestnetBlockchain,
+  createCircleWalletClient,
+  ensureCircleEntitySecret,
+  upsertBackendEnvValue,
+  type TestnetBlockchainValue,
+} from "../../src/modules/circle-wallet/circle-wallet.client.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const BACKEND_DIR = path.resolve(__dirname, "../..");
-
-export const OUTPUT_DIR = path.join(BACKEND_DIR, "output");
-export const ENV_PATH = path.join(BACKEND_DIR, ".env");
-export const TESTNET_BLOCKCHAINS = ["ARC-TESTNET"] as const;
-export const DEFAULT_BLOCKCHAIN = "ARC-TESTNET" as const;
+export { OUTPUT_DIR };
+export const DEFAULT_BLOCKCHAIN = DEFAULT_CIRCLE_WALLET_BLOCKCHAIN;
 export const SUPPORTED_ACTIONS = [
   "new_set",
   "new_wallet",
@@ -33,7 +29,6 @@ export const SUPPORTED_ACTIONS = [
 ] as const;
 
 export type SupportedAction = (typeof SUPPORTED_ACTIONS)[number];
-export type TestnetBlockchainValue = (typeof TESTNET_BLOCKCHAINS)[number];
 
 export type ParsedArgs = {
   action: SupportedAction;
@@ -99,6 +94,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
   }
 
   const actionEntry = actionEntries[0];
+  if (!actionEntry) {
+    throw new Error(`Unable to resolve wallet action.\n\n${usage}`);
+  }
+
   if (!actionEntry.value) {
     throw new Error(`-${actionEntry.key} requires a value.\n\n${usage}`);
   }
@@ -122,11 +121,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
 }
 
 export function upsertEnvValue(key: string, value: string) {
-  upsertEnvVariable(ENV_PATH, key, value);
+  upsertBackendEnvValue(key, value);
 }
 
 export function requireApiKey() {
-  const apiKey = process.env.CIRCLE_API_KEY;
+  const apiKey = process.env.CIRCLE_API_KEY?.trim();
   if (!apiKey) {
     throw new Error(
       "CIRCLE_API_KEY is required. Add it to .env or set it as an environment variable.",
@@ -137,48 +136,13 @@ export function requireApiKey() {
 }
 
 export async function ensureEntitySecret(logger: Logger) {
-  const existing = process.env.CIRCLE_ENTITY_SECRET;
-  if (existing) {
-    logger.log("Using existing entity secret from environment");
-    return existing;
-  }
-
-  const apiKey = requireApiKey();
-  const entitySecret = crypto.randomBytes(32).toString("hex");
-
-  logger.log("Registering new entity secret");
-
-  await registerEntitySecretCiphertext({
-    apiKey,
-    entitySecret,
-    recoveryFileDownloadPath: OUTPUT_DIR,
-  });
-
-  upsertEnvValue("CIRCLE_ENTITY_SECRET", entitySecret);
-  process.env.CIRCLE_ENTITY_SECRET = entitySecret;
-
-  logger.log("Entity secret registered and saved to .env");
-
-  return entitySecret;
+  return ensureCircleEntitySecret(logger);
 }
 
 export async function createClient(logger: Logger) {
-  const apiKey = requireApiKey();
-  const entitySecret = await ensureEntitySecret(logger);
-
-  return initiateDeveloperControlledWalletsClient({
-    apiKey,
-    entitySecret,
-  });
+  return createCircleWalletClient(logger);
 }
 
 export function assertTestnetBlockchain(blockchain: string) {
-  const allowed = new Set<string>(TESTNET_BLOCKCHAINS);
-  if (!allowed.has(blockchain)) {
-    throw new Error(
-      `Unsupported blockchain for faucet: ${blockchain}. Allowed: ${Array.from(allowed).join(", ")}`,
-    );
-  }
-
-  return blockchain as TestnetBlockchainValue;
+  return assertSupportedCircleTestnetBlockchain(blockchain);
 }
