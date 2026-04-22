@@ -26,6 +26,17 @@ type TokenHistoryPoint = {
   volume: number;
 };
 
+type TokenHistoryActivityPoint = TokenHistoryPoint & {
+  activity: {
+    transfersCount: number;
+    uniqueActiveAddresses: number;
+    transferredAmount: {
+      raw: string;
+      formatted: string;
+    };
+  };
+};
+
 type TokenSnapshot = {
   symbol: string;
   name: string;
@@ -129,11 +140,39 @@ export class TokenService {
       );
     }
 
+    const transferLogs = await this.getTransferLogs(getAddress(token.address));
+    const points = await this.buildHistoryPointsWithActivity(
+      token.history[requestedPeriod],
+      transferLogs,
+      token.decimals,
+      requestedPeriod,
+    );
+
     return {
       id: token.symbol,
       address: getAddress(token.address),
       period: requestedPeriod,
-      points: token.history[requestedPeriod],
+      summary: {
+        points: points.length,
+        transfersCount: points.reduce((total, point) => total + point.activity.transfersCount, 0),
+        uniqueActiveAddresses: new Set(
+          transferLogs.flatMap((log) => {
+            const addresses = [];
+
+            if (log.args.from && log.args.from !== zeroAddress) {
+              addresses.push(getAddress(log.args.from));
+            }
+
+            if (log.args.to && log.args.to !== zeroAddress) {
+              addresses.push(getAddress(log.args.to));
+            }
+
+            return addresses;
+          }),
+        ).size,
+        lastActivityAt: await this.getLastActivityTimestamp(transferLogs),
+      },
+      points,
     };
   }
 
@@ -264,6 +303,127 @@ export class TokenService {
 
   private getExplorerUrl(address: string) {
     return `https://testnet.arcscan.app/address/${address}`;
+  }
+
+  private async buildHistoryPointsWithActivity(
+    historyPoints: TokenHistoryPoint[],
+    transferLogs: Awaited<ReturnType<TokenService["getTransferLogs"]>>,
+    decimals: number,
+    period: HistoryPeriod,
+  ): Promise<TokenHistoryActivityPoint[]> {
+    if (historyPoints.length === 0) {
+      return [];
+    }
+
+    const blockTimestamps = await this.getBlockTimestampsByNumber(transferLogs);
+    const sortedPoints = [...historyPoints].sort(
+      (left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime(),
+    );
+    const firstPoint = sortedPoints[0];
+    const secondPoint = sortedPoints[1];
+    const inferredIntervalMs =
+      firstPoint && secondPoint
+        ? Math.max(new Date(secondPoint.timestamp).getTime() - new Date(firstPoint.timestamp).getTime(), 1)
+        : this.getFallbackIntervalMs(period);
+
+    return sortedPoints.map((point, index) => {
+      const intervalEndMs = new Date(point.timestamp).getTime();
+      const previousPoint = index > 0 ? sortedPoints[index - 1] : undefined;
+      const intervalStartMs =
+        previousPoint ? new Date(previousPoint.timestamp).getTime() : intervalEndMs - inferredIntervalMs;
+      const intervalLogs = transferLogs.filter((log) => {
+        const blockNumber = log.blockNumber;
+
+        if (blockNumber === null || blockNumber === undefined) {
+          return false;
+        }
+
+        const blockTimestampMs = blockTimestamps.get(blockNumber);
+
+        if (blockTimestampMs === undefined) {
+          return false;
+        }
+
+        return blockTimestampMs > intervalStartMs && blockTimestampMs <= intervalEndMs;
+      });
+      const activeAddresses = new Set<string>();
+      const transferredAmount = intervalLogs.reduce((total, log) => total + (log.args.value ?? 0n), 0n);
+
+      for (const log of intervalLogs) {
+        if (log.args.from && log.args.from !== zeroAddress) {
+          activeAddresses.add(getAddress(log.args.from));
+        }
+
+        if (log.args.to && log.args.to !== zeroAddress) {
+          activeAddresses.add(getAddress(log.args.to));
+        }
+      }
+
+      return {
+        ...point,
+        activity: {
+          transfersCount: intervalLogs.length,
+          uniqueActiveAddresses: activeAddresses.size,
+          transferredAmount: {
+            raw: transferredAmount.toString(),
+            formatted: formatUnits(transferredAmount, decimals),
+          },
+        },
+      };
+    });
+  }
+
+  private async getBlockTimestampsByNumber(
+    transferLogs: Awaited<ReturnType<TokenService["getTransferLogs"]>>,
+  ) {
+    const blockNumbers = [...new Set(transferLogs.map((log) => log.blockNumber).filter((blockNumber) => blockNumber !== null))];
+    const blocks = await Promise.all(
+      blockNumbers.map(async (blockNumber) => ({
+        blockNumber,
+        timestampMs: Number(
+          (
+            await this.publicClient.getBlock({
+              blockNumber,
+            })
+          ).timestamp * 1000n,
+        ),
+      })),
+    );
+
+    return new Map(blocks.map(({ blockNumber, timestampMs }) => [blockNumber, timestampMs]));
+  }
+
+  private async getLastActivityTimestamp(
+    transferLogs: Awaited<ReturnType<TokenService["getTransferLogs"]>>,
+  ) {
+    const latestLog = [...transferLogs]
+      .filter((log) => log.blockNumber !== null && log.blockNumber !== undefined)
+      .sort((left, right) =>
+        left.blockNumber === right.blockNumber ? 0 : left.blockNumber > right.blockNumber ? -1 : 1,
+      )[0];
+
+    if (!latestLog?.blockNumber) {
+      return null;
+    }
+
+    const block = await this.publicClient.getBlock({
+      blockNumber: latestLog.blockNumber,
+    });
+
+    return new Date(Number(block.timestamp * 1000n)).toISOString();
+  }
+
+  private getFallbackIntervalMs(period: HistoryPeriod) {
+    switch (period) {
+      case "1h":
+        return 5 * 60 * 1000;
+      case "24h":
+        return 2 * 60 * 60 * 1000;
+      case "7d":
+        return 24 * 60 * 60 * 1000;
+      case "30d":
+        return 3 * 24 * 60 * 60 * 1000;
+    }
   }
 
   private async getTransferLogs(address: `0x${string}`) {
