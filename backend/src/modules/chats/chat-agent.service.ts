@@ -140,7 +140,8 @@ export class ChatAgentService {
     );
 
     // Phase 2 — refinement: discover implicit tokens (e.g. "top tokens")
-    // now that market data is available.
+    // Yield a visible spinner step so the UI never goes silent during the Gemini call.
+    yield { phase: "planning", text: "Refining analysis..." };
     const refinedActions = await this.geminiService.planRefinedActions({
       latestUserMessage: params.latestUserMessage,
       alreadyExecuted: this.toExecutedSummaries(plannedActions),
@@ -157,9 +158,8 @@ export class ChatAgentService {
       );
     }
 
-    // Phase 3 — anomaly self-check: the agent scans collected data for anomalies
-    // and autonomously decides whether further diagnostic calls are needed.
-    // Each triggered call is a separate nano-payment.
+    // Phase 3 — anomaly self-check.
+    yield { phase: "planning", text: "Scanning for anomalies..." };
     const allExecutedSoFar = [...plannedActions, ...refinedActions];
     const { actions: anomalyActions, anomalies } =
       await this.geminiService.planAnomalyInvestigation({

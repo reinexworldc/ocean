@@ -40,7 +40,7 @@ function toolStepKey(tool, tokenId) {
 function buildStepFromEvent(data) {
   switch (data.phase) {
     case 'planning':
-      return { phase: 'planning', text: 'Analyzing your request' };
+      return { phase: 'planning', text: data.text ?? 'Analyzing your request' };
     case 'tool_executing':
       return {
         phase: 'tool_executing',
@@ -82,7 +82,6 @@ export function useChats({ enabled = true } = {}) {
   const [messagesStatusByChatId, setMessagesStatusByChatId] = useState({});
   const [messagesErrorByChatId, setMessagesErrorByChatId] = useState({});
   const [isCreatingChat, setIsCreatingChat] = useState(false);
-  const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [agentActionsByMessageId, setAgentActionsByMessageId] = useState({});
   const [streamingStateByMessageId, setStreamingStateByMessageId] = useState({});
 
@@ -213,7 +212,7 @@ export function useChats({ enabled = true } = {}) {
   }, [enabled]);
 
   const sendMessage = useCallback(
-    async (content) => {
+    async (content, { chatId: overrideChatId, onNewChatCreated } = {}) => {
       if (!enabled) {
         throw new Error('Authentication is required.');
       }
@@ -223,14 +222,14 @@ export function useChats({ enabled = true } = {}) {
         return null;
       }
 
-      setIsSendingMessage(true);
-      let activeChatId = selectedChatId;
+      let activeChatId = overrideChatId !== undefined ? overrideChatId : selectedChatId;
       let tempAssistantId = null;
 
       try {
         if (!activeChatId) {
           const createdChat = await handleCreateChat();
           activeChatId = createdChat.id;
+          onNewChatCreated?.(createdChat);
         }
 
         // Step 1: create user message on server, get stream token
@@ -436,8 +435,6 @@ export function useChats({ enabled = true } = {}) {
         }
 
         throw requestError;
-      } finally {
-        setIsSendingMessage(false);
       }
     },
     [enabled, handleCreateChat, loadChats, loadMessages, selectedChatId]
@@ -453,7 +450,6 @@ export function useChats({ enabled = true } = {}) {
       setMessagesStatusByChatId({});
       setMessagesErrorByChatId({});
       setIsCreatingChat(false);
-      setIsSendingMessage(false);
       setAgentActionsByMessageId({});
       setStreamingStateByMessageId({});
       return;
@@ -507,8 +503,10 @@ export function useChats({ enabled = true } = {}) {
     messages,
     messagesStatus,
     messagesError,
+    messagesByChatId,
+    messagesStatusByChatId,
+    messagesErrorByChatId,
     isCreatingChat,
-    isSendingMessage,
     agentActionsByMessageId,
     streamingStateByMessageId,
     selectChat: handleSelectChat,
