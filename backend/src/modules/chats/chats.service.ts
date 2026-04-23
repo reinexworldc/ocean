@@ -16,14 +16,24 @@ import { type CreateChatMessageDto } from "./dto/create-chat-message.dto.js";
 import { type UpdateChatDto } from "./dto/update-chat.dto.js";
 import { ChatAgentService, type ExecutedAgentAction } from "./chat-agent.service.js";
 import { type TradeProposal } from "./agent-stream.types.js";
-import { type GeminiChatMessage } from "./gemini.service.js";
+import { type GeminiChatMessage, type PlannedPremiumAction } from "./gemini.service.js";
 
 type StreamSession = {
   userId: string;
   chatId: string;
   content: string;
   circleWalletAddress: string | null;
+  executedActions: ExecutedAgentAction[];
+  tradeProposal: TradeProposal | null;
+  planState: {
+    plannedActions: PlannedPremiumAction[] | null;
+    refinedActions: PlannedPremiumAction[] | null;
+    anomalyActions: PlannedPremiumAction[] | null;
+    anomalies: string[] | null;
+  };
   expiresAt: number;
+  inProgress: boolean;
+  attempts: number;
 };
 
 const DEFAULT_CHAT_TITLE = "New chat";
@@ -249,7 +259,17 @@ export class ChatsService {
       chatId,
       content,
       circleWalletAddress: user?.circleWalletAddress ?? null,
+      executedActions: [],
+      tradeProposal: null,
+      planState: {
+        plannedActions: null,
+        refinedActions: null,
+        anomalyActions: null,
+        anomalies: null,
+      },
       expiresAt: Date.now() + STREAM_SESSION_TTL_MS,
+      inProgress: false,
+      attempts: 0,
     });
 
     return {
@@ -270,14 +290,22 @@ export class ChatsService {
       throw new NotFoundException("Stream session expired.");
     }
 
-    this.streamSessions.delete(streamToken);
+    if (session.inProgress) {
+      throw new BadRequestException("Stream session already in progress.");
+    }
+
+    session.inProgress = true;
+    session.attempts += 1;
 
     const { content, circleWalletAddress } = session;
 
     return new Observable<{ data: unknown }>((subscriber) => {
       void (async () => {
         let fullContent = "";
-          const out = { executedActions: [] as ExecutedAgentAction[], tradeProposal: null as TradeProposal | null };
+        const out = {
+          executedActions: session.executedActions,
+          tradeProposal: session.tradeProposal,
+        };
 
         try {
           const history = await this.prisma.message.findMany({
@@ -294,6 +322,10 @@ export class ChatsService {
               circleWalletAddress,
             },
             out,
+            {
+              attempt: session.attempts,
+              planState: session.planState,
+            },
           );
 
           for await (const event of agentStream) {
@@ -328,8 +360,10 @@ export class ChatsService {
             },
           });
 
+          this.streamSessions.delete(streamToken);
           subscriber.complete();
         } catch (error) {
+          const classification = this.classifyStreamError(error, { attempt: session.attempts });
           this.logger.error(
             `Stream failed for chat ${chatId}: ${error instanceof Error ? error.message : String(error)}`,
           );
@@ -338,9 +372,23 @@ export class ChatsService {
             data: {
               phase: "error",
               text: this.toUserFacingErrorMessage(error),
+              retryable: classification.retryable,
+              retryAfterMs: classification.retryAfterMs,
+              attempt: session.attempts,
             },
           });
 
+          // If the error looks transient, keep the session so the client can retry
+          // without creating a duplicate user message.
+          if (classification.retryable) {
+            session.inProgress = false;
+            session.expiresAt = Date.now() + STREAM_SESSION_TTL_MS;
+            subscriber.complete();
+            return;
+          }
+
+          // Terminal failure: clean up session and persist a failed assistant message.
+          this.streamSessions.delete(streamToken);
           try {
             await this.prisma.message.create({
               data: {
@@ -572,6 +620,10 @@ export class ChatsService {
       return "Insufficient USDC balance to process your request. Please top up your wallet and try again.";
     }
 
+    if (/too many requests|rate limit|rate limited|429/i.test(raw)) {
+      return "Too many requests right now. Please wait a moment and try again.";
+    }
+
     if (/settlement failed|payment.*fail|x402.*fail/i.test(raw)) {
       return "Payment processing failed. Please try again in a moment.";
     }
@@ -585,5 +637,32 @@ export class ChatsService {
     }
 
     return "Something went wrong while processing your request. Please try again.";
+  }
+
+  private classifyStreamError(
+    error: unknown,
+    options?: { attempt?: number },
+  ): { retryable: boolean; retryAfterMs: number } {
+    const raw = error instanceof Error ? error.message : String(error);
+
+    // Treat provider/rpc availability and rate limits as transient.
+    const retryable =
+      /temporarily unavailable|service unavailable|rate limit|rate limiting|too many requests|timeout|timed out|ETIMEDOUT|ECONNRESET|EAI_AGAIN/i.test(
+        raw,
+      ) ||
+      /\b(429|502|503|504)\b/.test(raw);
+
+    // Gentle backoff with cap. Attempts are tracked per stream token.
+    // attempt 1 => 1500-2000ms, attempt 2 => 3000-3500ms, attempt 3+ => 6000-6500ms
+    const attempt = Math.max(1, options?.attempt ?? 1);
+    const base = 1_500;
+    const max = 6_000;
+    const backoff = Math.min(base * 2 ** (attempt - 1), max);
+    const jitter = Math.floor(Math.random() * 500);
+
+    return {
+      retryable,
+      retryAfterMs: backoff + jitter,
+    };
   }
 }

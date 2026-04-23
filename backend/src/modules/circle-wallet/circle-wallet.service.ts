@@ -30,7 +30,7 @@ import type {
   WalletSummary,
 } from "./circle-wallet.types.js";
 
-const REPLENISH_AMOUNT_USDC = "0.1";
+const REPLENISH_AMOUNT_USDC = "0.5";
 const REPLENISH_COOLDOWN_MS = 30_000;
 
 @Injectable()

@@ -78,7 +78,7 @@ export class PaymentsService {
       fallbackScheme: new ExactEvmScheme(signer),
     });
     const x402HttpClient = new x402HTTPClient(client);
-    const paymentRequired = x402HttpClient.getPaymentRequiredResponse((name) =>
+    let paymentRequired = x402HttpClient.getPaymentRequiredResponse((name) =>
       unsignedResponse.headers.get(name),
     );
     const pendingTransaction = await this.prisma.transaction.create({
@@ -108,80 +108,112 @@ export class PaymentsService {
     let settlementResult: { success: boolean } | null = null;
 
     try {
-      const paymentPayload = await x402HttpClient.createPaymentPayload(paymentRequired);
-      const signatureDiagnostics = await this.buildPaymentSignatureDiagnostics(
-        paymentPayload,
-        user.circleWalletAddress!,
+      const maxAttempts = 3;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        const paymentPayload = await x402HttpClient.createPaymentPayload(paymentRequired);
+        const signatureDiagnostics = await this.buildPaymentSignatureDiagnostics(
+          paymentPayload,
+          user.circleWalletAddress!,
+        );
+        const paidResponse = await fetch(requestUrl, {
+          method: input.method,
+          headers: {
+            ...this.buildRequestHeaders(input.body),
+            ...x402HttpClient.encodePaymentSignatureHeader(paymentPayload),
+          },
+          body: input.body ? JSON.stringify(input.body) : undefined,
+        });
+        const rawPaidBody = await paidResponse.text();
+        const settlementHeader =
+          paidResponse.headers.get("PAYMENT-RESPONSE") || paidResponse.headers.get("X-PAYMENT-RESPONSE");
+
+        if (!settlementHeader) {
+          const retryPaymentRequired = this.readPaymentRequiredFromResponse(
+            x402HttpClient,
+            paidResponse,
+            rawPaidBody,
+          );
+
+          if (retryPaymentRequired) {
+            paymentRequired = retryPaymentRequired as never;
+          }
+
+          if (attempt < maxAttempts && this.shouldRetryPaidResponse(paidResponse.status)) {
+            await this.sleepMs(this.getRetryDelayMs(attempt, paidResponse));
+            continue;
+          }
+
+          if (paidResponse.status === 429) {
+            throw new BadGatewayException(
+              "The RPC provider is rate limiting requests. Please wait a moment and try again.",
+            );
+          }
+
+          throw new BadGatewayException(
+            `Paid request did not include a payment settlement header. Status: ${paidResponse.status}. Body: ${rawPaidBody.trim().slice(0, 500)}. Retry challenge: ${this.toJsonString(
+              retryPaymentRequired ?? {},
+            )}. Signature diagnostics: ${this.toJsonString(signatureDiagnostics)}`,
+          );
+        }
+
+        const settlement = x402HttpClient.getPaymentSettleResponse((name) => paidResponse.headers.get(name));
+        settlementResult = settlement;
+
+        await this.prisma.transaction.update({
+          where: {
+            id: pendingTransaction.id,
+          },
+          data: {
+            status: settlement.success ? TransactionStatus.COMPLETED : TransactionStatus.FAILED,
+            externalPaymentId: settlement.transaction || pendingTransaction.externalPaymentId,
+            metadata: this.toMetadataValue({
+              kind: "X402_AGENT_TOOL_CALL",
+              actionType: input.actionType,
+              description: input.description,
+              request: {
+                method: input.method,
+                path: input.path,
+                url: requestUrl,
+              },
+              paymentRequired,
+              settlement,
+              response: {
+                ok: paidResponse.ok,
+                status: paidResponse.status,
+              },
+            }),
+          },
+        });
+
+        if (!settlement.success) {
+          throw new BadGatewayException(
+            settlement.errorMessage || `x402 settlement failed for ${input.method} ${input.path}.`,
+          );
+        }
+
+        if (!paidResponse.ok) {
+          if (attempt < maxAttempts && this.shouldRetryPaidResponse(paidResponse.status)) {
+            await this.sleepMs(this.getRetryDelayMs(attempt, paidResponse));
+            continue;
+          }
+
+          throw new BadGatewayException(
+            `Paid request failed for ${input.method} ${input.path} with status ${paidResponse.status}.`,
+          );
+        }
+
+        return {
+          data: this.parseJsonBody<T>(rawPaidBody),
+          transactionId: pendingTransaction.id,
+          settlementTransaction: settlement.transaction,
+          paymentNetwork: settlement.network,
+        };
+      }
+
+      throw new BadGatewayException(
+        `Paid request failed for ${input.method} ${input.path} after ${maxAttempts} attempts.`,
       );
-      const paidResponse = await fetch(requestUrl, {
-        method: input.method,
-        headers: {
-          ...this.buildRequestHeaders(input.body),
-          ...x402HttpClient.encodePaymentSignatureHeader(paymentPayload),
-        },
-        body: input.body ? JSON.stringify(input.body) : undefined,
-      });
-      const rawPaidBody = await paidResponse.text();
-      const settlementHeader =
-        paidResponse.headers.get("PAYMENT-RESPONSE") || paidResponse.headers.get("X-PAYMENT-RESPONSE");
-
-      if (!settlementHeader) {
-        const retryPaymentRequired = this.readPaymentRequiredFromResponse(x402HttpClient, paidResponse, rawPaidBody);
-
-        throw new BadGatewayException(
-          `Paid request did not include a payment settlement header. Status: ${paidResponse.status}. Body: ${rawPaidBody.trim().slice(0, 500)}. Retry challenge: ${this.toJsonString(
-            retryPaymentRequired ?? {},
-          )}. Signature diagnostics: ${this.toJsonString(signatureDiagnostics)}`,
-        );
-      }
-
-      const settlement = x402HttpClient.getPaymentSettleResponse((name) => paidResponse.headers.get(name));
-      settlementResult = settlement;
-
-      await this.prisma.transaction.update({
-        where: {
-          id: pendingTransaction.id,
-        },
-        data: {
-          status: settlement.success ? TransactionStatus.COMPLETED : TransactionStatus.FAILED,
-          externalPaymentId: settlement.transaction || pendingTransaction.externalPaymentId,
-          metadata: this.toMetadataValue({
-            kind: "X402_AGENT_TOOL_CALL",
-            actionType: input.actionType,
-            description: input.description,
-            request: {
-              method: input.method,
-              path: input.path,
-              url: requestUrl,
-            },
-            paymentRequired,
-            settlement,
-            response: {
-              ok: paidResponse.ok,
-              status: paidResponse.status,
-            },
-          }),
-        },
-      });
-
-      if (!settlement.success) {
-        throw new BadGatewayException(
-          settlement.errorMessage || `x402 settlement failed for ${input.method} ${input.path}.`,
-        );
-      }
-
-      if (!paidResponse.ok) {
-        throw new BadGatewayException(
-          `Paid request failed for ${input.method} ${input.path} with status ${paidResponse.status}.`,
-        );
-      }
-
-      return {
-        data: this.parseJsonBody<T>(rawPaidBody),
-        transactionId: pendingTransaction.id,
-        settlementTransaction: settlement.transaction,
-        paymentNetwork: settlement.network,
-      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown x402 payment error.";
 
@@ -335,6 +367,52 @@ export class PaymentsService {
     } catch {
       return null;
     }
+  }
+
+  private shouldRetryPaidResponse(status: number) {
+    return status === 429 || status === 502 || status === 503 || status === 504;
+  }
+
+  private getRetryDelayMs(attempt: number, response?: Response) {
+    const retryAfterMs = this.parseRetryAfterMs(response?.headers?.get("retry-after") ?? null);
+    if (retryAfterMs !== null) {
+      return retryAfterMs;
+    }
+
+    // Be gentle to upstream RPC providers: slower exponential backoff with higher cap.
+    // attempt 1 => ~1500-2000ms, attempt 2 => ~3000-3500ms, attempt 3+ => ~6000-6500ms (capped)
+    const base = 1_500;
+    const max = 15_000;
+    const backoff = Math.min(base * 2 ** (attempt - 1), max);
+    const jitter = Math.floor(Math.random() * 500);
+    return backoff + jitter;
+  }
+
+  private parseRetryAfterMs(value: string | null): number | null {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    // retry-after can be seconds or an HTTP date.
+    const seconds = Number.parseInt(trimmed, 10);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(seconds * 1000, 60_000);
+    }
+
+    const at = Date.parse(trimmed);
+    if (Number.isFinite(at)) {
+      const delta = at - Date.now();
+      if (delta <= 0) return 0;
+      return Math.min(delta, 60_000);
+    }
+
+    return null;
+  }
+
+  private async sleepMs(ms: number) {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
   }
 
   private async buildPaymentSignatureDiagnostics(paymentPayload: unknown, expectedAddress: string) {

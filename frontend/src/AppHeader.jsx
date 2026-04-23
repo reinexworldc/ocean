@@ -67,7 +67,7 @@ function getWalletStatusMessage(walletState, walletError) {
 
 function formatUsdcBalance(balance, status) {
   if (status === 'loading') {
-    return '...';
+    return '—';
   }
 
   if (!balance?.formatted) {
@@ -105,6 +105,7 @@ function AppHeader({
   const walletAddress = formatWalletAddress(connectedWalletAddress);
   const walletStatusMessage = getWalletStatusMessage(walletState, walletError);
   const formattedUsdcBalance = formatUsdcBalance(arcWalletBalance, arcWalletBalanceStatus);
+  const isBalanceLoading = arcWalletBalanceStatus === 'loading';
   const isWalletActionPending = walletState === 'connecting' || walletState === 'authenticating';
   const canTriggerWalletAction = walletState !== 'connected' && !isWalletActionPending;
 
@@ -211,7 +212,9 @@ function AppHeader({
 
           <div className="account-panel__section account-panel__section--credits">
             <div className="account-panel__section-copy account-panel__section-copy--credits">
-              <div className="section-primary credits-value">${formattedUsdcBalance}</div>
+              <div className={`section-primary credits-value${isBalanceLoading ? ' credits-value--loading' : ''}`}>
+                ${formattedUsdcBalance}
+              </div>
               <div className="credits-title">USDC ON ARC</div>
             </div>
             <button
@@ -224,14 +227,14 @@ function AppHeader({
                   ? 'Replenishing...'
                   : replenishCooldown > 0
                     ? `Wait ${replenishCooldown}s`
-                    : 'Replenish 0.1 USDC'
+                    : 'Replenish 0.5 USDC'
               }
               title={
                 replenishError
                   ? replenishError.message
                   : replenishCooldown > 0
                     ? `Available in ${replenishCooldown}s`
-                    : 'Top up 0.1 USDC from your external wallet'
+                    : 'Top up 0.5 USDC from your external wallet'
               }
             >
               <img

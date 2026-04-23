@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -96,7 +101,9 @@ export class TokenService {
   async getTokenById(tokenId: string) {
     const dataset = await this.readTokenDataset();
     const token = this.resolveToken(dataset, tokenId);
-    const onChainData = await this.fetchOnChainTokenDetails(token.address);
+    const onChainData = await this.withRpcErrorMapping(() =>
+      this.fetchOnChainTokenDetails(token.address),
+    );
 
     return {
       id: token.symbol,
@@ -140,7 +147,9 @@ export class TokenService {
       );
     }
 
-    const transferLogs = await this.getTransferLogs(getAddress(token.address));
+    const transferLogs = await this.withRpcErrorMapping(() =>
+      this.getTransferLogs(getAddress(token.address)),
+    );
     const points = await this.buildHistoryPointsWithActivity(
       token.history[requestedPeriod],
       transferLogs,
@@ -376,7 +385,11 @@ export class TokenService {
   private async getBlockTimestampsByNumber(
     transferLogs: Awaited<ReturnType<TokenService["getTransferLogs"]>>,
   ) {
-    const blockNumbers = [...new Set(transferLogs.map((log) => log.blockNumber).filter((blockNumber) => blockNumber !== null))];
+    const blockNumbers = [
+      ...new Set(
+        transferLogs.map((log) => log.blockNumber).filter((blockNumber) => blockNumber !== null),
+      ),
+    ];
     const blocks = await Promise.all(
       blockNumbers.map(async (blockNumber) => ({
         blockNumber,
@@ -476,5 +489,32 @@ export class TokenService {
     }
 
     return low;
+  }
+
+  private async withRpcErrorMapping<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (error) {
+      const status = this.getHttpStatusFromViemError(error);
+
+      if (status === 429) {
+        throw new ServiceUnavailableException(
+          "Too many requests to the RPC provider. Please wait a moment and try again.",
+        );
+      }
+
+      throw new ServiceUnavailableException(
+        "The RPC provider is temporarily unavailable. Please try again in a moment.",
+      );
+    }
+  }
+
+  private getHttpStatusFromViemError(error: unknown): number | null {
+    if (!error || typeof error !== "object") {
+      return null;
+    }
+
+    const candidate = (error as { status?: unknown }).status;
+    return typeof candidate === "number" ? candidate : null;
   }
 }

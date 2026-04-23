@@ -37,14 +37,27 @@ function toolStepKey(tool, tokenId) {
   return tokenId ? `${tool}:${tokenId}` : tool;
 }
 
+function normalizeStepText(text) {
+  if (typeof text !== 'string') return text;
+  return text.replace(/\s*\(cached\)\s*$/i, '');
+}
+
 function buildStepFromEvent(data) {
   switch (data.phase) {
     case 'planning':
       return { phase: 'planning', text: data.text ?? 'Analyzing your request' };
+    case 'retrying':
+      return {
+        phase: 'retrying',
+        text: data.text ?? `Retrying${data.attempt ? ` (attempt ${data.attempt})` : ''}...`,
+        attempt: data.attempt ?? undefined,
+        retryAfterMs: data.retryAfterMs ?? undefined,
+      };
     case 'tool_executing':
       return {
         phase: 'tool_executing',
-        text: data.text ?? `Fetching ${(ACTION_LABELS[data.tool] ?? data.tool).toLowerCase()}`,
+        text: normalizeStepText(data.text) ?? `Fetching ${(ACTION_LABELS[data.tool] ?? data.tool).toLowerCase()}`,
+        cost: data.cost ?? undefined,
         tool: data.tool,
         tokenId: data.tokenId ?? null,
         key: toolStepKey(data.tool, data.tokenId),
@@ -52,7 +65,7 @@ function buildStepFromEvent(data) {
     case 'tool_result':
       return {
         phase: 'tool_result',
-        text: data.text ?? (ACTION_LABELS[data.tool] ?? data.tool),
+        text: normalizeStepText(data.text) ?? (ACTION_LABELS[data.tool] ?? data.tool),
         cost: data.cost,
         tool: data.tool,
         tokenId: data.tokenId ?? null,
@@ -67,7 +80,7 @@ function buildStepFromEvent(data) {
     case 'model_swap':
       return {
         phase: 'model_swap',
-        text: data.text ?? 'Primary model busy — switched to backup',
+        text: data.text ?? 'Primary model busy, switched to backup',
         fromModel: data.fromModel ?? '',
         toModel: data.toModel ?? '',
       };
@@ -84,7 +97,48 @@ function buildStepFromEvent(data) {
   }
 }
 
-const STEP_PHASES = new Set(['planning', 'tool_executing', 'tool_result', 'anomaly_detected', 'model_swap', 'generating', 'trade_proposal']);
+const STEP_PHASES = new Set([
+  'planning',
+  'tool_executing',
+  'tool_result',
+  'anomaly_detected',
+  'model_swap',
+  'generating',
+  'trade_proposal',
+]);
+
+const STREAM_RETRY_POLICY = {
+  maxRetries: 15,
+  maxTotalRetryMs: 180_000,
+  defaultRetryMs: 1500,
+};
+
+function shouldAppendStep(existingSteps, nextStep) {
+  if (!Array.isArray(existingSteps) || existingSteps.length === 0) return true;
+
+  if (nextStep.phase === 'tool_executing') {
+    const incomingKey = nextStep.key ?? nextStep.tool;
+    if (!incomingKey) return true;
+
+    // If this tool call was already announced (or already finished), don't add a duplicate
+    // entry on reconnect/retry — keep the UI stable.
+    const alreadyAnnounced = existingSteps.some(
+      (s) =>
+        (s.phase === 'tool_executing' || s.phase === 'tool_result') &&
+        (s.key ?? s.tool) === incomingKey,
+    );
+    return !alreadyAnnounced;
+  }
+
+  if (nextStep.phase === 'model_swap') {
+    // Model swap is informational; avoid duplicating identical swap messages on retries.
+    return !existingSteps.some(
+      (s) => s.phase === 'model_swap' && s.fromModel === nextStep.fromModel && s.toModel === nextStep.toModel,
+    );
+  }
+
+  return true;
+}
 
 export function useChats({ enabled = true } = {}) {
   const [chats, setChats] = useState([]);
@@ -283,177 +337,253 @@ export function useChats({ enabled = true } = {}) {
 
         // Step 2: open SSE stream and wait for it to complete
         const finalData = await new Promise((resolve, reject) => {
-          const url = getChatMessageStreamUrl(activeChatId, initResponse.streamToken);
-          const es = new EventSource(url, { withCredentials: true });
+          const token = initResponse.streamToken;
+          let retryCount = 0;
+          let retryTimer = null;
+          let es = null;
+          let clearAssistantOnNextToken = false;
+          const retryStartedAt = Date.now();
 
-          es.onmessage = (event) => {
-            let data;
-            try {
-              data = JSON.parse(event.data);
-            } catch {
+          const closeStream = () => {
+            if (retryTimer) {
+              clearTimeout(retryTimer);
+              retryTimer = null;
+            }
+            if (es) {
+              es.close();
+              es = null;
+            }
+          };
+
+          const failWithMessage = (text) => {
+            closeStream();
+            setMessagesByChatId((current) => ({
+              ...current,
+              [activeChatId]: (current[activeChatId] ?? []).map((m) =>
+                m.id === tempAssistantId
+                  ? { ...m, status: 'failed', content: text || 'Something went wrong. Please try again.' }
+                  : m
+              ),
+            }));
+            setStreamingStateByMessageId((current) => {
+              const next = { ...current };
+              delete next[tempAssistantId];
+              return next;
+            });
+            void loadChats();
+            resolve(null);
+          };
+
+          const scheduleRetry = (ms) => {
+            const elapsed = Date.now() - retryStartedAt;
+            if (
+              retryCount >= STREAM_RETRY_POLICY.maxRetries ||
+              elapsed >= STREAM_RETRY_POLICY.maxTotalRetryMs
+            ) {
+              failWithMessage(
+                'Upstream providers are temporarily unavailable. Please try again in a moment.',
+              );
               return;
             }
 
-            if (data.phase === 'token') {
-              // Append token to the message bubble
-              setMessagesByChatId((current) => ({
-                ...current,
-                [activeChatId]: (current[activeChatId] ?? []).map((m) =>
-                  m.id === tempAssistantId
-                    ? { ...m, content: m.content + data.text }
-                    : m
-                ),
-              }));
+            retryCount += 1;
+            const delay = Math.max(
+              250,
+              Number.isFinite(ms) ? ms : STREAM_RETRY_POLICY.defaultRetryMs,
+            );
 
-              // Keep the last generating step active during token streaming
-              setStreamingStateByMessageId((current) => ({
-                ...current,
-                [tempAssistantId]: {
-                  ...(current[tempAssistantId] ?? { steps: [] }),
-                  phase: 'token',
-                },
-              }));
-            } else if (data.phase === 'final') {
-              es.close();
+            // Keep a single, stable assistant bubble in UI while retrying.
+            // We only clear its content right before the next token arrives to
+            // avoid duplicated tokens, without visually "resetting everything".
+            setMessagesByChatId((current) => ({
+              ...current,
+              [activeChatId]: (current[activeChatId] ?? []).map((m) =>
+                m.id === tempAssistantId ? { ...m, status: 'pending' } : m
+              ),
+            }));
+            clearAssistantOnNextToken = true;
 
-              // Replace temp message with the persisted assistant message
-              setMessagesByChatId((current) => ({
-                ...current,
-                [activeChatId]: [
-                  ...(current[activeChatId] ?? []).filter(
-                    (m) => m.id !== tempAssistantId
+            // Retries happen silently in the background; don't add "Retrying…" noise
+            // or any duplicate "(cached)" steps to the visible list.
+            setStreamingStateByMessageId((current) => ({
+              ...current,
+              [tempAssistantId]: {
+                ...(current[tempAssistantId] ?? { steps: [] }),
+                phase: 'retrying',
+              },
+            }));
+
+            retryTimer = setTimeout(() => {
+              openStream();
+            }, delay);
+          };
+
+          const openStream = () => {
+            closeStream();
+            const url = getChatMessageStreamUrl(activeChatId, token);
+            es = new EventSource(url, { withCredentials: true });
+
+            es.onmessage = (event) => {
+              let data;
+              try {
+                data = JSON.parse(event.data);
+              } catch {
+                return;
+              }
+
+              if (data.phase === 'token') {
+                setMessagesByChatId((current) => ({
+                  ...current,
+                  [activeChatId]: (current[activeChatId] ?? []).map((m) =>
+                    m.id === tempAssistantId
+                      ? {
+                          ...m,
+                          content: (clearAssistantOnNextToken ? '' : m.content) + data.text,
+                        }
+                      : m
                   ),
-                  {
-                    id: data.messageId,
-                    chatId: activeChatId,
-                    role: 'assistant',
-                    content: data.content,
-                    status: 'completed',
-                    createdAt: new Date().toISOString(),
-                  },
-                ],
-              }));
-
-              setChats((current) => upsertChat(current, data.chat));
-
-              if (Array.isArray(data.agentActions) && data.agentActions.length > 0) {
-                setAgentActionsByMessageId((current) => ({
-                  ...current,
-                  [data.messageId]: data.agentActions,
                 }));
-              }
+                clearAssistantOnNextToken = false;
 
-              if (data.tradeProposal) {
-                setTradeProposalsByMessageId((current) => ({
-                  ...current,
-                  [data.messageId]: data.tradeProposal,
-                }));
-              }
-
-              // Clean up streaming state
-              setStreamingStateByMessageId((current) => {
-                const next = { ...current };
-                delete next[tempAssistantId];
-                return next;
-              });
-
-              resolve(data);
-            } else if (data.phase === 'error') {
-              es.close();
-
-              setMessagesByChatId((current) => ({
-                ...current,
-                [activeChatId]: (current[activeChatId] ?? []).map((m) =>
-                  m.id === tempAssistantId
-                    ? {
-                        ...m,
-                        status: 'failed',
-                        content: data.text || 'Something went wrong. Please try again.',
-                      }
-                    : m
-                ),
-              }));
-
-              setStreamingStateByMessageId((current) => {
-                const next = { ...current };
-                delete next[tempAssistantId];
-                return next;
-              });
-
-              // Reload chat list in background to sync title/preview.
-              void loadChats();
-
-              // Resolve so the outer catch doesn't wipe the failed bubble.
-              resolve(null);
-            } else if (STEP_PHASES.has(data.phase)) {
-              setStreamingStateByMessageId((current) => {
-                const old = current[tempAssistantId] ?? { steps: [] };
-
-                // When a tool result arrives, patch the matching tool_executing
-                // step (same tool + tokenId key) with the cost and final text
-                // instead of adding a redundant second row.
-                if (data.phase === 'tool_result') {
-                  const incomingKey = toolStepKey(data.tool, data.tokenId);
-                  const idx = [...old.steps]
-                    .reverse()
-                    .findIndex(
-                      (s) =>
-                        s.phase === 'tool_executing' &&
-                        (s.key ?? s.tool) === incomingKey,
-                    );
-                  if (idx !== -1) {
-                    const realIdx = old.steps.length - 1 - idx;
-                    const updated = old.steps.map((s, i) =>
-                      i === realIdx
-                        ? {
-                            ...s,
-                            phase: 'tool_result',
-                            text: data.text ?? s.text,
-                            cost: data.cost,
-                          }
-                        : s,
-                    );
-                    return {
-                      ...current,
-                      [tempAssistantId]: { phase: data.phase, steps: updated },
-                    };
-                  }
-                }
-
-                return {
+                setStreamingStateByMessageId((current) => ({
                   ...current,
                   [tempAssistantId]: {
-                    phase: data.phase,
-                    steps: [...old.steps, buildStepFromEvent(data)],
+                    ...(current[tempAssistantId] ?? { steps: [] }),
+                    phase: 'token',
                   },
-                };
-              });
-            }
+                }));
+              } else if (data.phase === 'final') {
+                closeStream();
+
+                setMessagesByChatId((current) => ({
+                  ...current,
+                  [activeChatId]: [
+                    ...(current[activeChatId] ?? []).filter((m) => m.id !== tempAssistantId),
+                    {
+                      id: data.messageId,
+                      chatId: activeChatId,
+                      role: 'assistant',
+                      content: data.content,
+                      status: 'completed',
+                      createdAt: new Date().toISOString(),
+                    },
+                  ],
+                }));
+
+                setChats((current) => upsertChat(current, data.chat));
+
+                if (Array.isArray(data.agentActions) && data.agentActions.length > 0) {
+                  setAgentActionsByMessageId((current) => ({
+                    ...current,
+                    [data.messageId]: data.agentActions,
+                  }));
+                }
+
+                if (data.tradeProposal) {
+                  setTradeProposalsByMessageId((current) => ({
+                    ...current,
+                    [data.messageId]: data.tradeProposal,
+                  }));
+                }
+
+                setStreamingStateByMessageId((current) => {
+                  const next = { ...current };
+                  delete next[tempAssistantId];
+                  return next;
+                });
+
+                resolve(data);
+              } else if (data.phase === 'error') {
+                // Retryable stream errors come from backend with retry metadata.
+                if (data.retryable) {
+                  closeStream();
+                  scheduleRetry(data.retryAfterMs);
+                  return;
+                }
+
+                failWithMessage(data.text);
+              } else if (STEP_PHASES.has(data.phase)) {
+                setStreamingStateByMessageId((current) => {
+                  const old = current[tempAssistantId] ?? { steps: [] };
+
+                  if (data.phase === 'tool_result') {
+                    const incomingKey = toolStepKey(data.tool, data.tokenId);
+                    const normalizedText = normalizeStepText(data.text);
+
+                    // If we already have a result for this tool, don't append a new step.
+                    // This prevents reconnect retries from adding "(cached)" or duplicating.
+                    const existingResultIndex = old.steps.findIndex(
+                      (s) => s.phase === 'tool_result' && (s.key ?? s.tool) === incomingKey,
+                    );
+                    if (existingResultIndex !== -1) {
+                      const updated = old.steps.map((s, i) =>
+                        i === existingResultIndex
+                          ? {
+                              ...s,
+                              cost: data.cost ?? s.cost,
+                              text: normalizedText ?? s.text,
+                            }
+                          : s,
+                      );
+                      return {
+                        ...current,
+                        [tempAssistantId]: { phase: data.phase, steps: updated },
+                      };
+                    }
+
+                    // Otherwise, upgrade the most recent executing step (if present).
+                    const idx = [...old.steps].reverse().findIndex(
+                      (s) => s.phase === 'tool_executing' && (s.key ?? s.tool) === incomingKey,
+                    );
+                    if (idx !== -1) {
+                      const realIdx = old.steps.length - 1 - idx;
+                      const updated = old.steps.map((s, i) =>
+                        i === realIdx
+                          ? {
+                              ...s,
+                              phase: 'tool_result',
+                              text: normalizedText ?? s.text,
+                              cost: data.cost,
+                            }
+                          : s,
+                      );
+                      return {
+                        ...current,
+                        [tempAssistantId]: { phase: data.phase, steps: updated },
+                      };
+                    }
+                  }
+
+                  const nextStep = buildStepFromEvent(data);
+                  if (!shouldAppendStep(old.steps, nextStep)) {
+                    return {
+                      ...current,
+                      [tempAssistantId]: {
+                        phase: data.phase,
+                        steps: old.steps,
+                      },
+                    };
+                  }
+
+                  return {
+                    ...current,
+                    [tempAssistantId]: {
+                      phase: data.phase,
+                      steps: [...old.steps, nextStep],
+                    },
+                  };
+                });
+              }
+            };
+
+            es.onerror = () => {
+              // Network hiccup: retry with backoff, but don't fail fast.
+              closeStream();
+              scheduleRetry(STREAM_RETRY_POLICY.defaultRetryMs);
+            };
           };
 
-          es.onerror = () => {
-            es.close();
-
-            if (tempAssistantId) {
-              setMessagesByChatId((current) => ({
-                ...current,
-                [activeChatId]: (current[activeChatId] ?? []).map((m) =>
-                  m.id === tempAssistantId
-                    ? { ...m, status: 'failed', content: 'Connection lost. Please try again.' }
-                    : m
-                ),
-              }));
-              setStreamingStateByMessageId((current) => {
-                const next = { ...current };
-                delete next[tempAssistantId];
-                return next;
-              });
-              void loadChats();
-              resolve(null);
-            } else {
-              reject(new Error('Connection lost. Please try again.'));
-            }
-          };
+          openStream();
         });
 
         return finalData;

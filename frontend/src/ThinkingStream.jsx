@@ -111,9 +111,17 @@ function ThinkingStream({ streamingState }) {
           {steps.map((step, index) => {
             const isLast = index === steps.length - 1;
             const isToolResult = step.phase === 'tool_result';
+            const isToolExecuting = step.phase === 'tool_executing';
             const isAnomaly = step.phase === 'anomaly_detected';
             const isModelSwap = step.phase === 'model_swap';
-            const isActive = isLast && isLive && !isToolResult && !isAnomaly && !isModelSwap;
+            // A tool can be executing in parallel with other steps; don't rely on "last step"
+            // to decide whether to show an in-progress spinner.
+            const isActive =
+              isLive &&
+              !isToolResult &&
+              !isAnomaly &&
+              !isModelSwap &&
+              (isToolExecuting || isLast);
 
             return (
               <li
@@ -121,7 +129,9 @@ function ThinkingStream({ streamingState }) {
                 className={`thinking-stream__step${isActive ? ' thinking-stream__step--active' : ''}${isAnomaly ? ' thinking-stream__step--anomaly' : ''}${isModelSwap ? ' thinking-stream__step--model-swap' : ''}`}
               >
                 <StepIcon active={isActive} isToolResult={isToolResult} isAnomaly={isAnomaly} isModelSwap={isModelSwap} />
-                <span className="thinking-stream__step-text">{step.text}</span>
+                <span className="thinking-stream__step-text" title={step.text}>
+                  {step.text}
+                </span>
                 {step.cost ? (
                   <span className="thinking-stream__step-cost">{step.cost}</span>
                 ) : null}

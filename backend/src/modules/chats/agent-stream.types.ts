@@ -12,7 +12,7 @@ export type TradeProposal = {
 
 export type AgentStreamEvent =
   | { phase: "planning"; text: string }
-  | { phase: "tool_executing"; text: string; tool: string; tokenId?: string }
+  | { phase: "tool_executing"; text: string; tool: string; cost?: string; tokenId?: string }
   | { phase: "tool_result"; text: string; tool: string; cost: string; tokenId?: string }
   /** Emitted when the agent self-detected a data anomaly and is investigating it. */
   | { phase: "anomaly_detected"; text: string; anomalies: string[] }
@@ -22,4 +22,4 @@ export type AgentStreamEvent =
   | { phase: "token"; text: string }
   | { phase: "trade_proposal"; proposal: TradeProposal }
   | { phase: "final"; messageId: string; content: string; agentActions: Array<Record<string, unknown>>; tradeProposal: TradeProposal | null; chat: Record<string, unknown> }
-  | { phase: "error"; text: string };
+  | { phase: "error"; text: string; retryable?: boolean; retryAfterMs?: number; attempt?: number };

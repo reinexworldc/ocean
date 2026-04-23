@@ -2,16 +2,9 @@ import OpenAI from "openai";
 import { Injectable, Logger } from "@nestjs/common";
 
 /**
- * Maps internal Gemini model names to their OpenRouter equivalents.
- * Used when falling back from the Gemini API to OpenRouter.
+ * OpenRouter model to use for all Gemini fallbacks.
  */
-const OPENROUTER_MODEL_MAP: Record<string, string> = {
-  "gemini-3-flash-preview": "google/gemini-flash-2.5",
-  "gemini-2.0-flash": "google/gemini-2.0-flash-001",
-  "gemini-1.5-flash": "google/gemini-1.5-flash",
-};
-
-const DEFAULT_OPENROUTER_MODEL = "google/gemini-flash-2.5";
+const DEFAULT_OPENROUTER_MODEL = "google/gemini-2.5-flash-lite";
 
 @Injectable()
 export class OpenRouterService {
@@ -55,7 +48,7 @@ export class OpenRouterService {
   private resolveModel(geminiModel: string): string {
     const envModel = process.env.OPENROUTER_MODEL?.trim();
     if (envModel) return envModel;
-    return OPENROUTER_MODEL_MAP[geminiModel] ?? DEFAULT_OPENROUTER_MODEL;
+    return DEFAULT_OPENROUTER_MODEL;
   }
 
   private getClient(): OpenAI {

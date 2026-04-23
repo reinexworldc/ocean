@@ -209,6 +209,17 @@
   color: #000000;
 }
 
+@keyframes credits-pulse {
+  0% { opacity: 0.45; }
+  50% { opacity: 0.85; }
+  100% { opacity: 0.45; }
+}
+
+.credits-value--loading {
+  opacity: 0.6;
+  animation: credits-pulse 0.9s ease-in-out infinite;
+}
+
 .section-action-icon {
   width: 15px;
   height: 16px;

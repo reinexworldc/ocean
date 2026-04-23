@@ -14,6 +14,9 @@ const ACTION_LABELS: Record<string, string> = {
 
 export type ExecutedAgentAction = {
   type: PlannedPremiumAction["type"];
+  /** Optional identifiers used to de-duplicate tool calls across stream retries. */
+  tokenId?: string;
+  period?: HistoryPeriod;
   endpoint: string;
   amountUsd: string;
   transactionId: string;
@@ -132,20 +135,44 @@ export class ChatAgentService {
       circleWalletAddress: string | null;
     },
     out: { executedActions: ExecutedAgentAction[]; tradeProposal: TradeProposal | null },
+    options?: {
+      attempt?: number;
+      planState?: {
+        plannedActions: PlannedPremiumAction[] | null;
+        refinedActions: PlannedPremiumAction[] | null;
+        anomalyActions: PlannedPremiumAction[] | null;
+        anomalies: string[] | null;
+      };
+    },
   ): AsyncGenerator<AgentStreamEvent> {
-    yield { phase: "planning", text: "Analyzing your request..." };
+    const attempt = Math.max(1, options?.attempt ?? 1);
+    const planState = options?.planState;
+
+    const shouldAnnounceTopPlanning = !planState?.plannedActions && attempt === 1;
+    if (shouldAnnounceTopPlanning) {
+      yield { phase: "planning", text: "Analyzing your request..." };
+    }
 
     const swapQueue: Array<{ from: string; to: string }> = [];
     const onModelSwap = (from: string, to: string) => swapQueue.push({ from, to });
 
-    const plannedActions = await this.geminiService.planPremiumActions(
-      {
-        latestUserMessage: params.latestUserMessage,
-        circleWalletAddress: params.circleWalletAddress,
-      },
-      onModelSwap,
-    );
-    yield* this.drainModelSwapEvents(swapQueue);
+    const ranPremiumPlanner = planState ? planState.plannedActions === null : true;
+    const plannedActions =
+      planState?.plannedActions ??
+      (await this.geminiService.planPremiumActions(
+        {
+          latestUserMessage: params.latestUserMessage,
+          circleWalletAddress: params.circleWalletAddress,
+        },
+        onModelSwap,
+      ));
+    if (planState && planState.plannedActions === null) {
+      planState.plannedActions = plannedActions;
+    }
+    // Only drain model swaps when we actually ran the planner (otherwise we'd repeat them).
+    if (ranPremiumPlanner) {
+      yield* this.drainModelSwapEvents(swapQueue);
+    }
 
     if (plannedActions.length === 0) {
       yield { phase: "generating", text: "Generating response..." };
@@ -192,16 +219,27 @@ export class ChatAgentService {
 
     // Phase 2 — refinement: discover implicit tokens (e.g. "top tokens")
     // Yield a visible spinner step so the UI never goes silent during the Gemini call.
-    yield { phase: "planning", text: "Refining analysis..." };
-    const refinedActions = await this.geminiService.planRefinedActions(
-      {
-        latestUserMessage: params.latestUserMessage,
-        alreadyExecuted: this.toExecutedSummaries(plannedActions),
-        toolResults: this.toToolResults(out.executedActions),
-      },
-      onModelSwap,
-    );
-    yield* this.drainModelSwapEvents(swapQueue);
+    if (planState ? planState.refinedActions === null : true) {
+      yield { phase: "planning", text: "Refining analysis..." };
+    }
+
+    const ranRefiner = planState ? planState.refinedActions === null : true;
+    const refinedActions =
+      planState?.refinedActions ??
+      (await this.geminiService.planRefinedActions(
+        {
+          latestUserMessage: params.latestUserMessage,
+          alreadyExecuted: this.toExecutedSummaries(plannedActions),
+          toolResults: this.toToolResults(out.executedActions),
+        },
+        onModelSwap,
+      ));
+    if (planState && planState.refinedActions === null) {
+      planState.refinedActions = refinedActions;
+    }
+    if (ranRefiner) {
+      yield* this.drainModelSwapEvents(swapQueue);
+    }
 
     if (refinedActions.length > 0) {
       yield* this.streamActions(
@@ -214,18 +252,32 @@ export class ChatAgentService {
     }
 
     // Phase 3 — anomaly self-check.
-    yield { phase: "planning", text: "Scanning for anomalies..." };
+    if (planState ? planState.anomalyActions === null : true) {
+      yield { phase: "planning", text: "Scanning for anomalies..." };
+    }
     const allExecutedSoFar = [...plannedActions, ...refinedActions];
-    const { actions: anomalyActions, anomalies } =
-      await this.geminiService.planAnomalyInvestigation(
-        {
-          latestUserMessage: params.latestUserMessage,
-          alreadyExecuted: this.toExecutedSummaries(allExecutedSoFar),
-          toolResults: this.toToolResults(out.executedActions),
-        },
-        onModelSwap,
-      );
-    yield* this.drainModelSwapEvents(swapQueue);
+    const ranAnomalyPlanner = planState ? planState.anomalyActions === null : true;
+    const anomalyPlan =
+      planState?.anomalyActions
+        ? { actions: planState.anomalyActions, anomalies: planState.anomalies ?? [] }
+        : await this.geminiService.planAnomalyInvestigation(
+            {
+              latestUserMessage: params.latestUserMessage,
+              alreadyExecuted: this.toExecutedSummaries(allExecutedSoFar),
+              toolResults: this.toToolResults(out.executedActions),
+            },
+            onModelSwap,
+          );
+
+    const anomalyActions = anomalyPlan.actions;
+    const anomalies = anomalyPlan.anomalies;
+    if (planState && planState.anomalyActions === null) {
+      planState.anomalyActions = anomalyActions;
+      planState.anomalies = anomalies;
+    }
+    if (ranAnomalyPlanner) {
+      yield* this.drainModelSwapEvents(swapQueue);
+    }
 
     if (anomalyActions.length > 0) {
       yield {
@@ -294,28 +346,53 @@ export class ChatAgentService {
     actions: PlannedPremiumAction[],
     collector: ExecutedAgentAction[],
   ): AsyncGenerator<AgentStreamEvent> {
-    // Announce all tool calls immediately so the UI shows the full list at once.
+    const executedByKey = new Map<string, ExecutedAgentAction>();
+    for (const executed of collector) {
+      executedByKey.set(this.executedKey(executed), executed);
+    }
+
+    const actionsToExecute: PlannedPremiumAction[] = [];
+
+    // Announce tool calls immediately so the UI shows the full list at once.
+    // If an action already succeeded in a previous attempt, emit it as cached
+    // and do NOT execute again (prevents double-charging).
     for (const action of actions) {
       const { label, tokenId, tokenSuffix } = this.actionMeta(action);
+      const cached = executedByKey.get(this.actionKey(action));
+
+      if (cached) {
+        yield {
+          phase: "tool_result",
+          text: `${label}${tokenSuffix} (cached)`,
+          tool: action.type,
+          cost: cached.amountUsd,
+          ...(tokenId ? { tokenId } : {}),
+        };
+        continue;
+      }
+
+      const estimatedCost = this.estimateActionCost(action);
       yield {
         phase: "tool_executing",
         text: `Fetching${tokenSuffix} ${label.toLowerCase()}`,
         tool: action.type,
+        ...(estimatedCost ? { cost: estimatedCost } : {}),
         ...(tokenId ? { tokenId } : {}),
       };
+      actionsToExecute.push(action);
     }
 
     // Execute all in parallel; yield each result as it arrives.
     // Every action — whether it succeeds, is skipped (404), or fails — must
     // decrement totalExpected and call the notifier so the while-loop below
     // never hangs waiting for a notification that will never arrive.
-    let totalExpected = actions.length;
+    let totalExpected = actionsToExecute.length;
     const settled: Array<AgentStreamEvent & { phase: "tool_result" }> = [];
     const notifiers: Array<() => void> = [];
     let firstError: unknown = null;
 
     const allSettled = Promise.allSettled(
-      actions.map(async (action) => {
+      actionsToExecute.map(async (action) => {
         const { label, tokenId, tokenSuffix } = this.actionMeta(action);
         let result: ExecutedAgentAction;
         try {
@@ -357,6 +434,21 @@ export class ChatAgentService {
     }
   }
 
+  private estimateActionCost(action: PlannedPremiumAction): string | null {
+    switch (action.type) {
+      case "get_market_overview":
+        return paidApiCatalog.getMarketOverview.priceUsd;
+      case "get_token_details":
+        return paidApiCatalog.getTokenDetails.priceUsd;
+      case "get_token_history":
+        return paidApiCatalog.getTokenHistory.priceUsd;
+      case "get_wallet_portfolio":
+        return paidApiCatalog.getWalletPortfolio.priceUsd;
+      default:
+        return null;
+    }
+  }
+
   /** Execute a batch of actions in parallel and return all results. */
   private runActionsParallel(
     userId: string,
@@ -385,6 +477,18 @@ export class ChatAgentService {
     const tokenId = "tokenId" in action ? action.tokenId.toUpperCase() : undefined;
     const tokenSuffix = tokenId ? ` ${tokenId}` : "";
     return { label, tokenId, tokenSuffix };
+  }
+
+  private actionKey(action: PlannedPremiumAction): string {
+    const tokenId = "tokenId" in action ? action.tokenId.toUpperCase() : "";
+    const period = "period" in action ? String(action.period) : "";
+    return `${action.type}:${tokenId}:${period}`;
+  }
+
+  private executedKey(executed: ExecutedAgentAction): string {
+    const tokenId = executed.tokenId?.toUpperCase?.() ?? "";
+    const period = executed.period ? String(executed.period) : "";
+    return `${executed.type}:${tokenId}:${period}`;
   }
 
   private async buildTradeProposal(
@@ -429,6 +533,8 @@ export class ChatAgentService {
 
         return {
           type: action.type,
+          tokenId: undefined,
+          period: undefined,
           endpoint,
           amountUsd: paidApiCatalog.getMarketOverview.priceUsd,
           transactionId: response.transactionId,
@@ -452,6 +558,8 @@ export class ChatAgentService {
 
         return {
           type: action.type,
+          tokenId,
+          period: undefined,
           endpoint,
           amountUsd: paidApiCatalog.getTokenDetails.priceUsd,
           transactionId: response.transactionId,
@@ -476,6 +584,8 @@ export class ChatAgentService {
 
         return {
           type: action.type,
+          tokenId,
+          period,
           endpoint,
           amountUsd: paidApiCatalog.getTokenHistory.priceUsd,
           transactionId: response.transactionId,
@@ -502,6 +612,8 @@ export class ChatAgentService {
 
         return {
           type: action.type,
+          tokenId: undefined,
+          period: undefined,
           endpoint,
           amountUsd: paidApiCatalog.getWalletPortfolio.priceUsd,
           transactionId: response.transactionId,
