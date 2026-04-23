@@ -226,26 +226,27 @@ export class ChatAgentService {
     }
 
     // Execute all in parallel; yield each result as it arrives.
-    // Settled count may be less than actions.length when some are skipped (e.g. 404).
+    // Every action — whether it succeeds, is skipped (404), or fails — must
+    // decrement totalExpected and call the notifier so the while-loop below
+    // never hangs waiting for a notification that will never arrive.
     let totalExpected = actions.length;
     const settled: Array<AgentStreamEvent & { phase: "tool_result" }> = [];
     const notifiers: Array<() => void> = [];
+    let firstError: unknown = null;
 
-    const allSettled = Promise.all(
+    const allSettled = Promise.allSettled(
       actions.map(async (action) => {
         const { label, tokenId, tokenSuffix } = this.actionMeta(action);
         let result: ExecutedAgentAction;
         try {
           result = await this.executeAction(userId, chatId, circleWalletAddress, action);
         } catch (err) {
-          // Skip tokens that are not found in the data API rather than
-          // crashing the entire stream.
-          if (this.isNotFoundError(err)) {
-            totalExpected--;
-            notifiers.shift()?.();
-            return;
+          totalExpected--;
+          notifiers.shift()?.();
+          if (!this.isNotFoundError(err) && firstError === null) {
+            firstError = err;
           }
-          throw err;
+          return;
         }
         collector.push(result);
         settled.push({
@@ -270,6 +271,10 @@ export class ChatAgentService {
     }
 
     await allSettled;
+
+    if (firstError !== null) {
+      throw firstError;
+    }
   }
 
   /** Execute a batch of actions in parallel and return all results. */

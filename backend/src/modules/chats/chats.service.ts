@@ -332,7 +332,7 @@ export class ChatsService {
           subscriber.next({
             data: {
               phase: "error",
-              text: error instanceof Error ? error.message : "Failed to generate response.",
+              text: this.toUserFacingErrorMessage(error),
             },
           });
 
@@ -558,5 +558,27 @@ export class ChatsService {
       status: message.status.toLowerCase(),
       createdAt: message.createdAt,
     };
+  }
+
+  private toUserFacingErrorMessage(error: unknown): string {
+    const raw = error instanceof Error ? error.message : String(error);
+
+    if (/insufficient|balance|funds|low balance/i.test(raw)) {
+      return "Insufficient USDC balance to process your request. Please top up your wallet and try again.";
+    }
+
+    if (/settlement failed|payment.*fail|x402.*fail/i.test(raw)) {
+      return "Payment processing failed. Please try again in a moment.";
+    }
+
+    if (/circle wallet|wallet.*not found|not.*provisioned/i.test(raw)) {
+      return "Your payment wallet is not ready. Please try reconnecting your wallet.";
+    }
+
+    if (/timeout|timed out|ETIMEDOUT/i.test(raw)) {
+      return "The request timed out. Please try again.";
+    }
+
+    return "Something went wrong while processing your request. Please try again.";
   }
 }

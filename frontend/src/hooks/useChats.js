@@ -347,7 +347,7 @@ export function useChats({ enabled = true } = {}) {
                     ? {
                         ...m,
                         status: 'failed',
-                        content: data.text || 'Failed to generate a response.',
+                        content: data.text || 'Something went wrong. Please try again.',
                       }
                     : m
                 ),
@@ -359,7 +359,11 @@ export function useChats({ enabled = true } = {}) {
                 return next;
               });
 
-              reject(new Error(data.text || 'Stream error'));
+              // Reload chat list in background to sync title/preview.
+              void loadChats();
+
+              // Resolve so the outer catch doesn't wipe the failed bubble.
+              resolve(null);
             } else if (STEP_PHASES.has(data.phase)) {
               setStreamingStateByMessageId((current) => {
                 const old = current[tempAssistantId] ?? { steps: [] };
@@ -408,7 +412,26 @@ export function useChats({ enabled = true } = {}) {
 
           es.onerror = () => {
             es.close();
-            reject(new Error('Stream connection failed.'));
+
+            if (tempAssistantId) {
+              setMessagesByChatId((current) => ({
+                ...current,
+                [activeChatId]: (current[activeChatId] ?? []).map((m) =>
+                  m.id === tempAssistantId
+                    ? { ...m, status: 'failed', content: 'Connection lost. Please try again.' }
+                    : m
+                ),
+              }));
+              setStreamingStateByMessageId((current) => {
+                const next = { ...current };
+                delete next[tempAssistantId];
+                return next;
+              });
+              void loadChats();
+              resolve(null);
+            } else {
+              reject(new Error('Connection lost. Please try again.'));
+            }
           };
         });
 
