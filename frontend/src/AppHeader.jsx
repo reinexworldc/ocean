@@ -67,16 +67,16 @@ function getWalletStatusMessage(walletState, walletError) {
 
 function formatUsdcBalance(balance, status) {
   if (status === 'loading') {
-    return '—';
+    return null;
   }
 
   if (!balance?.formatted) {
-    return '--';
+    return '0.00';
   }
 
   const numericBalance = Number.parseFloat(balance.formatted);
   if (!Number.isFinite(numericBalance)) {
-    return '--';
+    return '0.00';
   }
 
   return new Intl.NumberFormat('en-US', {
@@ -212,9 +212,13 @@ function AppHeader({
 
           <div className="account-panel__section account-panel__section--credits">
             <div className="account-panel__section-copy account-panel__section-copy--credits">
-              <div className={`section-primary credits-value${isBalanceLoading ? ' credits-value--loading' : ''}`}>
-                ${formattedUsdcBalance}
-              </div>
+              {isBalanceLoading ? (
+                <div className="credits-value credits-value--skeleton" aria-label="Loading balance" />
+              ) : (
+                <div className="section-primary credits-value">
+                  ${formattedUsdcBalance}
+                </div>
+              )}
               <div className="credits-title">USDC ON ARC</div>
             </div>
             <button

@@ -121,8 +121,15 @@ export function useWalletSession() {
         const nextError = toError(requestError, 'Wallet authentication failed.');
         setUser(null);
         setStatus('unauthenticated');
-        setError(nextError);
-        throw nextError;
+
+        const isUserRejection =
+          nextError.message?.toLowerCase().includes('user rejected') ||
+          nextError.name === 'UserRejectedRequestError';
+
+        if (!isUserRejection) {
+          setError(nextError);
+          throw nextError;
+        }
       } finally {
         isAuthenticatingRef.current = false;
       }
@@ -152,8 +159,16 @@ export function useWalletSession() {
       }
     } catch (requestError) {
       const nextError = toError(requestError, 'Failed to connect the wallet.');
-      setError(nextError);
-      throw nextError;
+      const isUserRejection =
+        nextError.message?.toLowerCase().includes('user rejected') ||
+        nextError.name === 'UserRejectedRequestError';
+
+      if (!isUserRejection) {
+        setError(nextError);
+        throw nextError;
+      }
+
+      return null;
     }
 
     if (
@@ -205,25 +220,8 @@ export function useWalletSession() {
   useEffect(() => {
     if (!isConnected) {
       attemptedAutoAuthAddressRef.current = null;
-      return;
     }
-
-    if (!address || status === 'loading' || status === 'authenticating') {
-      return;
-    }
-
-    if (normalizeAddress(user?.walletAddress) === normalizeAddress(address)) {
-      return;
-    }
-
-    if (attemptedAutoAuthAddressRef.current === normalizeAddress(address)) {
-      return;
-    }
-
-    attemptedAutoAuthAddressRef.current = normalizeAddress(address);
-
-    void authenticateWallet(address).catch(() => {});
-  }, [address, authenticateWallet, isConnected, status, user?.walletAddress]);
+  }, [isConnected]);
 
   const walletState = useMemo(() => {
     if (isConnectingWallet) {

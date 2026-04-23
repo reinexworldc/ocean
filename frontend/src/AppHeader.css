@@ -207,15 +207,19 @@
   color: #000000;
 }
 
-@keyframes credits-pulse {
-  0% { opacity: 0.45; }
-  50% { opacity: 0.85; }
-  100% { opacity: 0.45; }
+@keyframes credits-skeleton {
+  0% { background-position: -120px 0; }
+  100% { background-position: 120px 0; }
 }
 
-.credits-value--loading {
-  opacity: 0.6;
-  animation: credits-pulse 0.9s ease-in-out infinite;
+.credits-value--skeleton {
+  width: 52px;
+  height: 18px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+  background-size: 240px 100%;
+  animation: credits-skeleton 1.2s ease-in-out infinite;
+  align-self: center;
 }
 
 .section-action-icon {
