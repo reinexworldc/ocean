@@ -29,32 +29,32 @@ Each of Ocean's API endpoints charges a precise fraction-of-a-cent fee proportio
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        React Frontend                           │
-│  Wallet (SIWE) · Chat Panel (SSE) · Agent Actions · Trade Card │
+│  Wallet (SIWE) · Chat Panel (SSE) · Agent Actions · Trade Card  │
 └────────────────────────────┬────────────────────────────────────┘
                              │ user message
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                       NestJS Backend                            │
 │                                                                 │
-│  1. Chat Agent Service  ──►  Gemini (plan actions)             │
+│  1. Chat Agent Service  ──►  Gemini (plan actions)              │
 │         │                                                       │
 │         │  for each planned action                              │
 │         ▼                                                       │
-│  2. Payments Service    ──►  GET /token/:id/...                │
+│  2. Payments Service    ──►  GET /token/:id/...                 │
 │         │                    ↳ HTTP 402 returned                │
 │         │                                                       │
 │         ▼                                                       │
-│  3. Circle Wallet        ──►  signTypedData (EIP-712)          │
+│  3. Circle Wallet        ──►  signTypedData (EIP-712)           │
 │         │                                                       │
 │         ▼                                                       │
-│  4. x402 Facilitator     ──►  Arc L1: USDC settled             │
+│  4. x402 Facilitator     ──►  Arc L1: USDC settled              │
 │         │                     tx hash returned                  │
 │         │                                                       │
 │         ▼                                                       │
-│  5. Token / Trade Service ─►  viem RPC reads on Arc            │
+│  5. Token / Trade Service ─►  viem RPC reads on Arc             │
 │         │                     data returned + RPC cost log      │
 │         ▼                                                       │
-│  6. Gemini (reply)       ──►  stream back to frontend          │
+│  6. Gemini (reply)       ──►  stream back to frontend           │
 └─────────────────────────────────────────────────────────────────┘
                              │ settlement tx hash
                              ▼
