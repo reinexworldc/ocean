@@ -49,7 +49,7 @@ function AgentActionsPanel({ actions }) {
           >
             <path
               d="M2 4.5L6 8L10 4.5"
-              stroke="#000000"
+              stroke="currentColor"
               strokeWidth="1.5"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -58,6 +58,8 @@ function AgentActionsPanel({ actions }) {
         </span>
 
         <span className="agent-actions-count">{actions.length} API Call{actions.length !== 1 ? 's' : ''}</span>
+
+        <span className="agent-actions-separator" aria-hidden="true" />
 
         <span className="agent-actions-total">{formatUsd(totalUsd)}</span>
       </button>

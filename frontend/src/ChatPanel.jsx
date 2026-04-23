@@ -1,6 +1,25 @@
 import { useMemo } from 'react';
+import ReactMarkdown from 'react-markdown';
 import './ChatPanel.css';
 import AgentActionsPanel from './AgentActionsPanel';
+import ThinkingStream from './ThinkingStream';
+
+function getUserDisplayName(user) {
+  if (user?.displayName?.trim()) {
+    return user.displayName.trim();
+  }
+  if (user?.walletAddress) {
+    const addr = user.walletAddress;
+    return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+  }
+  return 'You';
+}
+
+function getMessageBubbleStatus(status) {
+  if (status === 'failed') return 'message-bubble--failed';
+  if (status === 'pending') return 'message-bubble--pending';
+  return '';
+}
 
 function ChatPanel({
   chat,
@@ -12,7 +31,11 @@ function ChatPanel({
   walletState,
   walletError,
   agentActionsByMessageId,
+  streamingStateByMessageId,
+  user,
 }) {
+  const userDisplayName = useMemo(() => getUserDisplayName(user), [user]);
+
   const lastAssistantMessage = useMemo(
     () =>
       [...messages]
@@ -48,39 +71,51 @@ function ChatPanel({
 
             {!isAuthenticated ? (
               <div className="message-row assistant-row">
-                <div className="message assistant-message chat-empty-state">
-                  <p>
-                    {walletState === 'readyToSign'
-                      ? 'Wallet connected. Finish SIWE sign-in to load your chat history.'
-                      : 'Connect your wallet and sign in to load your chat history.'}
-                  </p>
-                  {walletError?.message ? (
-                    <p className="chat-empty-state__error">{walletError.message}</p>
-                  ) : null}
+                <div className="message-bubble-group message-bubble-group--assistant">
+                  <span className="message-sender">Ocean</span>
+                  <div className="message-bubble message-bubble--assistant chat-empty-state">
+                    <p>
+                      {walletState === 'readyToSign'
+                        ? 'Wallet connected. Finish SIWE sign-in to load your chat history.'
+                        : 'Connect your wallet and sign in to load your chat history.'}
+                    </p>
+                    {walletError?.message ? (
+                      <p className="chat-empty-state__error">{walletError.message}</p>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             ) : null}
 
             {isAuthenticated && !chat ? (
               <div className="message-row assistant-row">
-                <div className="message assistant-message chat-empty-state">
-                  <p>Create a new chat from the sidebar to start the conversation.</p>
+                <div className="message-bubble-group message-bubble-group--assistant">
+                  <span className="message-sender">Ocean</span>
+                  <div className="message-bubble message-bubble--assistant chat-empty-state">
+                    <p>Create a new chat from the sidebar to start the conversation.</p>
+                  </div>
                 </div>
               </div>
             ) : null}
 
             {isAuthenticated && chat && messagesStatus === 'loading' && messages.length === 0 ? (
               <div className="message-row assistant-row">
-                <div className="message assistant-message chat-empty-state">
-                  <p>Loading messages...</p>
+                <div className="message-bubble-group message-bubble-group--assistant">
+                  <span className="message-sender">Ocean</span>
+                  <div className="message-bubble message-bubble--assistant chat-empty-state">
+                    <p>Loading messages...</p>
+                  </div>
                 </div>
               </div>
             ) : null}
 
             {isAuthenticated && chat && messagesStatus === 'error' && messages.length === 0 ? (
               <div className="message-row assistant-row">
-                <div className="message assistant-message chat-empty-state">
-                  <p>{messagesError?.message ?? 'Failed to load chat messages.'}</p>
+                <div className="message-bubble-group message-bubble-group--assistant">
+                  <span className="message-sender">Ocean</span>
+                  <div className="message-bubble message-bubble--assistant chat-empty-state">
+                    <p>{messagesError?.message ?? 'Failed to load chat messages.'}</p>
+                  </div>
                 </div>
               </div>
             ) : null}
@@ -91,39 +126,69 @@ function ChatPanel({
             messagesStatus !== 'error' &&
             messages.length === 0 ? (
               <div className="message-row assistant-row">
-                <div className="message assistant-message chat-empty-state">
-                  <p>Send the first message to generate a Gemini response.</p>
+                <div className="message-bubble-group message-bubble-group--assistant">
+                  <span className="message-sender">Ocean</span>
+                  <div className="message-bubble message-bubble--assistant chat-empty-state">
+                    <p>Hi! I'm here to help you with your questions.</p>
+                  </div>
                 </div>
               </div>
             ) : null}
 
-            {messages.map((message) => (
-              <div key={message.id}>
-                <div
-                  className={`message-row ${
-                    message.role === 'user' ? 'user-row' : 'assistant-row'
-                  }`}
-                >
-                  <div
-                    className={`message ${
-                      message.role === 'user' ? 'user-message' : 'assistant-message'
-                    } ${
-                      message.status === 'failed'
-                        ? 'message--failed'
-                        : message.status === 'pending'
-                          ? 'message--pending'
-                          : ''
-                    }`}
-                  >
-                    <p>{message.content}</p>
-                  </div>
-                </div>
+            {messages.map((message) => {
+              const streamingState =
+                message.role === 'assistant'
+                  ? streamingStateByMessageId?.[message.id]
+                  : null;
+              const agentActions =
+                message.role === 'assistant'
+                  ? agentActionsByMessageId?.[message.id]
+                  : null;
 
-                {message.role === 'assistant' && agentActionsByMessageId?.[message.id] ? (
-                  <AgentActionsPanel actions={agentActionsByMessageId[message.id]} />
-                ) : null}
-              </div>
-            ))}
+              // Hide the bubble while it's pending and still empty — the
+              // ThinkingStream rendered above it acts as the placeholder.
+              const hideEmptyBubble =
+                message.status === 'pending' && !message.content;
+
+              return (
+                <div key={message.id}>
+                  {streamingState ? (
+                    <ThinkingStream streamingState={streamingState} />
+                  ) : null}
+
+                  {!hideEmptyBubble ? (
+                    <div
+                      className={`message-row ${
+                        message.role === 'user' ? 'user-row' : 'assistant-row'
+                      }`}
+                    >
+                      <div
+                        className={`message-bubble-group message-bubble-group--${message.role}`}
+                      >
+                        <span className="message-sender">
+                          {message.role === 'user' ? userDisplayName : 'Ocean'}
+                        </span>
+                        <div
+                          className={`message-bubble message-bubble--${message.role} ${getMessageBubbleStatus(message.status)}`}
+                        >
+                          {message.role === 'assistant' ? (
+                            <div className="message-markdown">
+                              <ReactMarkdown>{message.content}</ReactMarkdown>
+                            </div>
+                          ) : (
+                            <p>{message.content}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {agentActions ? (
+                    <AgentActionsPanel actions={agentActions} />
+                  ) : null}
+                </div>
+              );
+            })}
 
             <div className="chat-actions">
               <button

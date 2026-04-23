@@ -61,12 +61,7 @@
   position: relative;
 }
 
-.chat-empty-state {
-  color: #666666;
-}
-
 .chat-empty-state p {
-  color: #666666;
   font-size: 14px;
   line-height: 1.5;
 }
@@ -98,6 +93,7 @@
   display: block;
 }
 
+/* Message row — outer flex alignment */
 .message-row {
   display: flex;
   width: 100%;
@@ -112,36 +108,154 @@
   justify-content: flex-start;
 }
 
-.message {
-  max-width: 80%;
-  font-size: 14px;
-  line-height: 1.5;
-  color: #333333;
+/* Bubble group: sender label + bubble */
+.message-bubble-group {
+  display: flex;
+  flex-direction: column;
+  max-width: 65%;
+  min-width: 0;
 }
 
-.message p {
+.message-bubble-group--user {
+  align-items: flex-end;
+}
+
+.message-bubble-group--assistant {
+  align-items: flex-start;
+}
+
+/* Sender label */
+.message-sender {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-style: normal;
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 15px;
+  color: #8c8c8c;
+  margin-bottom: 4px;
+  white-space: nowrap;
+}
+
+/* Bubble */
+.message-bubble {
+  padding: 10px 14px;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-style: normal;
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.message-bubble p {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-.user-message {
-  margin-right: 64px;
+/* Markdown content inside assistant bubbles */
+.message-markdown {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
 }
 
-.assistant-message {
-  margin-left: 64px;
+.message-markdown > *:first-child { margin-top: 0; }
+.message-markdown > *:last-child  { margin-bottom: 0; }
+
+.message-markdown p {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
 }
 
-.assistant-message p {
+.message-markdown strong {
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.message-markdown em {
+  font-style: italic;
+}
+
+.message-markdown h1,
+.message-markdown h2,
+.message-markdown h3 {
+  font-weight: 700;
+  margin: 14px 0 4px;
+  color: #1a1a1a;
+}
+
+.message-markdown h1 { font-size: 16px; }
+.message-markdown h2 { font-size: 15px; }
+.message-markdown h3 { font-size: 14px; }
+
+.message-markdown ul,
+.message-markdown ol {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+}
+
+.message-markdown li {
+  margin-bottom: 3px;
+}
+
+.message-markdown li > p {
   margin: 0;
 }
 
-.message--pending {
-  color: #7a7a7a;
+.message-markdown hr {
+  border: none;
+  border-top: 1px solid #c8c8c8;
+  margin: 10px 0;
 }
 
-.message--failed {
+.message-markdown code {
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 12px;
+  background: #e4e4e4;
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.message-markdown pre {
+  background: #e4e4e4;
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+
+.message-markdown pre code {
+  background: none;
+  padding: 0;
+  font-size: 12px;
+}
+
+.message-bubble--assistant {
+  background: #dcdcdc;
+  color: #000000;
+  border-radius: 5px 5px 5px 0px;
+}
+
+.message-bubble--user {
+  background: #dcdcdc;
+  color: #000000;
+  border-radius: 5px 5px 0px 5px;
+}
+
+/* Status modifiers */
+.message-bubble--pending {
+  opacity: 0.6;
+}
+
+.message-bubble--failed {
+  background: #f5e0e0;
+  color: #8b3a3a;
+}
+
+.message-bubble--user.message-bubble--failed {
+  background: #f5e0e0;
   color: #8b3a3a;
 }
 

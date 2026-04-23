@@ -55,6 +55,7 @@ function OceanSidebar({
   selectedChatId,
   onSelectChat,
   onCreateChat,
+  onDeleteChat,
   isAuthenticated,
   isCreatingChat,
 }) {
@@ -104,18 +105,33 @@ function OceanSidebar({
         ) : null}
 
         {chats.map((chat) => (
-          <button
-            type="button"
+          <div
+            key={chat.id}
             className={`ocean-sidebar__item${
               chat.id === selectedChatId ? ' ocean-sidebar__item--active' : ''
             }`}
-            key={chat.id}
-            onClick={() => onSelectChat(chat.id)}
-            aria-pressed={chat.id === selectedChatId}
           >
-            <span className="ocean-sidebar__itemTitle">{chat.title}</span>
-            <span className="ocean-sidebar__itemTime">{formatRelativeTime(chat.updatedAt)}</span>
-          </button>
+            <button
+              type="button"
+              className="ocean-sidebar__itemButton"
+              onClick={() => onSelectChat(chat.id)}
+              aria-pressed={chat.id === selectedChatId}
+            >
+              <span className="ocean-sidebar__itemTitle">{chat.title}</span>
+              <span className="ocean-sidebar__itemTime">{formatRelativeTime(chat.updatedAt)}</span>
+            </button>
+            <button
+              type="button"
+              className="ocean-sidebar__deleteButton"
+              onClick={(e) => {
+                e.stopPropagation();
+                void onDeleteChat(chat.id);
+              }}
+              aria-label={`Delete chat "${chat.title}"`}
+            >
+              ×
+            </button>
+          </div>
         ))}
       </div>
     </aside>

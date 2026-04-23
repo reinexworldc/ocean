@@ -7,6 +7,7 @@ import './App.css';
 import { useCircleWallet } from './hooks/useCircleWallet';
 import { useChats } from './hooks/useChats';
 import { useCurrentUserProfile } from './hooks/useCurrentUserProfile';
+import { useReplenishWallet } from './hooks/useReplenishWallet';
 import { useWalletSession } from './hooks/useWalletSession';
 
 function App() {
@@ -37,10 +38,14 @@ function App() {
     enabled: walletSession.isAuthenticated,
   });
 
+  const replenishWallet = useReplenishWallet({
+    onSuccess: circleWallet.reload,
+  });
+
   const sendMessage = useCallback(
     async (content) => {
       const response = await chats.sendMessage(content);
-      if (response?.agentActions?.length > 0) {
+      if (Array.isArray(response?.agentActions) && response.agentActions.length > 0) {
         void circleWallet.reload();
       }
       return response;
@@ -52,8 +57,6 @@ function App() {
     <div className="app-container">
       <AppHeader
         user={currentUser}
-        userStatus={userStatus}
-        onSaveProfile={saveUserProfile}
         onSignOut={walletSession.signOut}
         onConnectWallet={walletSession.connectWallet}
         onRetryAuthentication={walletSession.retryAuthentication}
@@ -63,6 +66,10 @@ function App() {
         walletError={walletSession.error}
         arcWalletBalance={circleWallet.usdcBalance}
         arcWalletBalanceStatus={circleWallet.status}
+        onReplenish={replenishWallet.replenish}
+        isReplenishing={replenishWallet.isPending}
+        replenishCooldown={replenishWallet.cooldownSeconds}
+        replenishError={replenishWallet.error}
       />
 
       <div className="content-shell">
@@ -74,6 +81,7 @@ function App() {
             selectedChatId={chats.selectedChatId}
             onSelectChat={chats.selectChat}
             onCreateChat={chats.createChat}
+            onDeleteChat={chats.deleteChat}
             isAuthenticated={walletSession.isAuthenticated}
             isCreatingChat={chats.isCreatingChat}
           />
@@ -87,6 +95,8 @@ function App() {
             walletState={walletSession.walletState}
             walletError={walletSession.error}
             agentActionsByMessageId={chats.agentActionsByMessageId}
+            streamingStateByMessageId={chats.streamingStateByMessageId}
+            user={currentUser}
           />
         </div>
       </div>

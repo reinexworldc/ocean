@@ -1,6 +1,10 @@
 import { GoogleGenAI } from "@google/genai";
 import { Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { HISTORY_PERIODS, type HistoryPeriod } from "../payments/paid-api-catalog.js";
+import { buildPlanningPrompt } from "./prompts/planning.prompt.js";
+import { buildRefinementPrompt, type ExecutedActionSummary } from "./prompts/refinement.prompt.js";
+import { buildReplyPrompt } from "./prompts/reply.prompt.js";
+import { buildToolReplyPrompt } from "./prompts/tool-reply.prompt.js";
 
 const DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview";
 
@@ -31,7 +35,7 @@ export class GeminiService {
   private client: GoogleGenAI | null = null;
 
   async generateReply(messages: GeminiChatMessage[]) {
-    const text = await this.generateText(this.buildReplyPrompt(messages));
+    const text = await this.generateText(buildReplyPrompt(messages));
 
     if (!text) {
       throw new ServiceUnavailableException("Gemini returned an empty response.");
@@ -40,11 +44,15 @@ export class GeminiService {
     return text;
   }
 
+  async *generateReplyStream(messages: GeminiChatMessage[]): AsyncGenerator<string> {
+    yield* this.generateTextStream(buildReplyPrompt(messages));
+  }
+
   async generateReplyWithToolResults(params: {
     messages: GeminiChatMessage[];
     toolResults: Array<Record<string, unknown>>;
   }) {
-    const text = await this.generateText(this.buildToolReplyPrompt(params.messages, params.toolResults));
+    const text = await this.generateText(buildToolReplyPrompt(params.messages, params.toolResults));
 
     if (!text) {
       throw new ServiceUnavailableException("Gemini returned an empty orchestrated response.");
@@ -53,17 +61,46 @@ export class GeminiService {
     return text;
   }
 
+  async *generateReplyWithToolResultsStream(params: {
+    messages: GeminiChatMessage[];
+    toolResults: Array<Record<string, unknown>>;
+  }): AsyncGenerator<string> {
+    yield* this.generateTextStream(buildToolReplyPrompt(params.messages, params.toolResults));
+  }
+
   async planPremiumActions(params: {
     latestUserMessage: string;
     circleWalletAddress: string | null;
   }): Promise<PlannedPremiumAction[]> {
     const rawPlan = await this.generateText(
-      this.buildPlanningPrompt(params.latestUserMessage, params.circleWalletAddress),
+      buildPlanningPrompt(params.latestUserMessage, params.circleWalletAddress),
     );
     const parsedPlan = this.parseJsonObject(rawPlan);
     const actions = Array.isArray(parsedPlan.actions) ? parsedPlan.actions : [];
 
     return this.normalizePlannedActions(actions);
+  }
+
+  /**
+   * Second-pass planner: called after the initial tool results are available.
+   * Discovers additional token-specific actions the user implicitly requested
+   * (e.g. "top tokens") that couldn't be resolved without the market data.
+   */
+  async planRefinedActions(params: {
+    latestUserMessage: string;
+    alreadyExecuted: ExecutedActionSummary[];
+    toolResults: Array<Record<string, unknown>>;
+  }): Promise<PlannedPremiumAction[]> {
+    const rawPlan = await this.generateText(
+      buildRefinementPrompt(params),
+    );
+    const parsedPlan = this.parseJsonObject(rawPlan);
+    const actions = Array.isArray(parsedPlan.actions) ? parsedPlan.actions : [];
+
+    // Only allow token-specific actions in the refinement step.
+    return this.normalizePlannedActions(actions).filter(
+      (a) => a.type === "get_token_details" || a.type === "get_token_history",
+    );
   }
 
   private getClient() {
@@ -97,61 +134,19 @@ export class GeminiService {
     return response.text?.trim();
   }
 
-  private buildReplyPrompt(messages: GeminiChatMessage[]) {
-    const transcript = messages
-      .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
-      .join("\n\n");
+  private async *generateTextStream(prompt: string): AsyncGenerator<string> {
+    const stream = await this.getClient().models.generateContentStream({
+      model: this.getModel(),
+      contents: prompt,
+    });
 
-    return [
-      "You are Ocean, a concise and helpful AI chat assistant.",
-      "Continue the conversation naturally and answer in plain text.",
-      "Use the transcript below as the chat history.",
-      transcript,
-    ].join("\n\n");
-  }
+    for await (const chunk of stream) {
+      const text = chunk.text;
 
-  private buildToolReplyPrompt(
-    messages: GeminiChatMessage[],
-    toolResults: Array<Record<string, unknown>>,
-  ) {
-    const transcript = messages
-      .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
-      .join("\n\n");
-
-    return [
-      "You are Ocean, a concise and helpful crypto research assistant.",
-      "You are an orchestrator that calls premium data tools and then synthesizes the final answer.",
-      "Treat the premium tool results below as the source of truth for factual claims.",
-      "Do not mention x402, payment plumbing, or internal implementation details unless the user asks.",
-      "If the tool results are incomplete, be transparent about the gap.",
-      "Respond in plain text.",
-      `PREMIUM_TOOL_RESULTS_JSON:\n${this.safeJsonStringify(toolResults)}`,
-      "CHAT_TRANSCRIPT:",
-      transcript,
-    ].join("\n\n");
-  }
-
-  private buildPlanningPrompt(latestUserMessage: string, circleWalletAddress: string | null) {
-    return [
-      "You are the Ocean premium tool planner.",
-      "Decide whether the latest user message requires premium API calls.",
-      'Return strict JSON only in the format {"actions":[...]} with no markdown fences.',
-      "Available actions:",
-      '1. {"type":"get_market_overview"} -> GET /market',
-      '2. {"type":"get_token_details","tokenId":"SOL"} -> GET /token/:id',
-      '3. {"type":"get_token_history","tokenId":"SOL","period":"24h"} -> GET /token/:id/history?period=24h',
-      '4. {"type":"get_wallet_portfolio"} -> GET /portfolio/:wallet using the authenticated user Circle wallet',
-      "Rules:",
-      "- Return an empty actions array for greetings, casual chat, or requests that do not need premium data.",
-      "- For token comparison, momentum, price, activity, sentiment, or relative-strength questions, include the needed market/token actions.",
-      "- For momentum comparisons across tokens, include get_market_overview plus get_token_details and get_token_history for each compared token.",
-      "- For portfolio or holdings questions, include get_wallet_portfolio if a Circle wallet exists.",
-      `- Supported history periods: ${HISTORY_PERIODS.join(", ")}.`,
-      "- Never duplicate the same action.",
-      "- Use uppercase token ids.",
-      `Authenticated user Circle wallet available: ${circleWalletAddress ? "yes" : "no"}.`,
-      `Latest user message: ${latestUserMessage}`,
-    ].join("\n\n");
+      if (text) {
+        yield text;
+      }
+    }
   }
 
   private parseJsonObject(value: string | undefined) {
@@ -248,11 +243,4 @@ export class GeminiService {
       : null;
   }
 
-  private safeJsonStringify(value: unknown) {
-    return JSON.stringify(
-      value,
-      (_key, currentValue) => (typeof currentValue === "bigint" ? currentValue.toString() : currentValue),
-      2,
-    );
-  }
 }

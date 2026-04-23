@@ -1,0 +1,148 @@
+.thinking-stream {
+  margin-bottom: 12px;
+  max-width: 65%;
+}
+
+/* Toggle button (same pill style as AgentActionsPanel) */
+.thinking-stream__toggle {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 4px 10px 4px 8px;
+  background: #ebebeb;
+  border-radius: 20px;
+  transition: background 0.15s ease;
+}
+
+.thinking-stream__toggle:hover {
+  background: #e0e0e0;
+}
+
+.thinking-stream__arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+  color: #666666;
+}
+
+.thinking-stream__toggle--expanded .thinking-stream__arrow {
+  transform: rotate(180deg);
+}
+
+.thinking-stream__arrow svg {
+  display: block;
+}
+
+.thinking-stream__label {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 15px;
+  color: #444444;
+}
+
+/* Shimmer gradient while live */
+.thinking-stream__label--live {
+  background: linear-gradient(
+    90deg,
+    #888888 0%,
+    #888888 20%,
+    #333333 40%,
+    #888888 60%,
+    #888888 100%
+  );
+  background-size: 200% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: thinking-shimmer 1.6s linear infinite;
+}
+
+@keyframes thinking-shimmer {
+  from { background-position: 200% center; }
+  to   { background-position:   0% center; }
+}
+
+/* Steps list */
+.thinking-stream__steps {
+  list-style: none;
+  margin: 6px 0 0 10px;
+  padding: 0 0 0 10px;
+  border-left: 1.5px solid #d4d4d4;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.thinking-stream__step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0;
+}
+
+/* Step icon */
+.thinking-stream__step-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Spinner icon for active step */
+.thinking-stream__spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid #c0c0c0;
+  border-top-color: #666666;
+  border-radius: 50%;
+  animation: thinking-spin 0.7s linear infinite;
+}
+
+@keyframes thinking-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Checkmark icon for completed step */
+.thinking-stream__check {
+  color: #888888;
+}
+
+.thinking-stream__check svg {
+  display: block;
+}
+
+/* Step text */
+.thinking-stream__step-text {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-weight: 500;
+  font-size: 11px;
+  line-height: 15px;
+  color: #737373;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.thinking-stream__step--active .thinking-stream__step-text {
+  color: #555555;
+}
+
+/* Cost badge */
+.thinking-stream__step-cost {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-weight: 500;
+  font-size: 11px;
+  line-height: 15px;
+  color: #999999;
+  white-space: nowrap;
+}

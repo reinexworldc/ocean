@@ -50,7 +50,7 @@
   font-weight: 500;
   line-height: 22px;
   outline: none;
-  color: #747474;
+  color: #000000;
   background: transparent;
   caret-color: transparent;
 }
@@ -82,7 +82,7 @@
   font-weight: 500;
   font-size: 14px;
   line-height: 22px;
-  color: #747474;
+  color: #b0b0b0;
   transform: translateY(-50%);
   pointer-events: none;
   user-select: none;

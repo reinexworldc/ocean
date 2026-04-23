@@ -1,8 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import arrowUpIcon from './assets/arrow-up-1-svgrepo-com.svg';
 import connectIcon from './assets/connect-svgrepo-com.svg';
 import logoutIcon from './assets/logout-svgrepo-com.svg';
 import './AppHeader.css';
+
+const POPUP_DURATION_MS = 5000;
 
 function formatWalletAddress(walletAddress) {
   if (!walletAddress) {
@@ -84,8 +87,6 @@ function formatUsdcBalance(balance, status) {
 
 function AppHeader({
   user,
-  userStatus,
-  onSaveProfile,
   onSignOut,
   onConnectWallet,
   onRetryAuthentication,
@@ -95,54 +96,47 @@ function AppHeader({
   walletError,
   arcWalletBalance,
   arcWalletBalanceStatus,
+  onReplenish,
+  isReplenishing,
+  replenishCooldown,
+  replenishError,
 }) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState('');
-  const [formState, setFormState] = useState({
-    displayName: '',
-    email: '',
-  });
-
   const displayName = useMemo(() => getDisplayName(user), [user]);
-  const email = user?.email?.trim() ? user.email : 'NO EMAIL SET';
   const walletAddress = formatWalletAddress(connectedWalletAddress);
   const walletStatusMessage = getWalletStatusMessage(walletState, walletError);
   const formattedUsdcBalance = formatUsdcBalance(arcWalletBalance, arcWalletBalanceStatus);
   const isWalletActionPending = walletState === 'connecting' || walletState === 'authenticating';
   const canTriggerWalletAction = walletState !== 'connected' && !isWalletActionPending;
-  const isProfileReady = isAuthenticated && userStatus !== 'loading';
 
-  async function handleSubmit(event) {
-    event.preventDefault();
+  const [showPopup, setShowPopup] = useState(false);
+  const popupTimerRef = useRef(null);
 
-    if (!isAuthenticated) {
+  useEffect(() => {
+    return () => {
+      if (popupTimerRef.current) {
+        clearTimeout(popupTimerRef.current);
+      }
+    };
+  }, []);
+
+  const isReplenishDisabled = !isAuthenticated || isReplenishing || replenishCooldown > 0;
+
+  function handleReplenish() {
+    if (isReplenishDisabled) {
       return;
     }
 
-    setIsSaving(true);
-    setSaveError('');
+    setShowPopup(true);
 
-    try {
-      await onSaveProfile({
-        displayName: formState.displayName,
-        email: formState.email,
-      });
-      setIsEditing(false);
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Failed to save profile.');
-    } finally {
-      setIsSaving(false);
+    if (popupTimerRef.current) {
+      clearTimeout(popupTimerRef.current);
     }
-  }
 
-  function handleInputChange(event) {
-    const { name, value } = event.target;
+    popupTimerRef.current = setTimeout(() => {
+      setShowPopup(false);
+    }, POPUP_DURATION_MS);
 
-    setFormState((currentState) => ({
-      ...currentState,
-      [name]: value,
-    }));
+    void onReplenish();
   }
 
   async function handleSignOut() {
@@ -152,25 +146,9 @@ function AppHeader({
 
     try {
       await onSignOut();
-      setIsEditing(false);
     } catch {
       // Wallet/session errors are surfaced through shared auth state.
     }
-  }
-
-  function handleToggleEditing() {
-    if (isEditing) {
-      setIsEditing(false);
-      setSaveError('');
-      return;
-    }
-
-    setFormState({
-      displayName: user?.displayName ?? '',
-      email: user?.email ?? '',
-    });
-    setSaveError('');
-    setIsEditing(true);
   }
 
   async function handleWalletAction() {
@@ -191,6 +169,7 @@ function AppHeader({
   }
 
   return (
+    <>
     <header className="header">
       <div className="logo-container">
         <span className="logo-ocean">OCEAN</span>
@@ -198,57 +177,12 @@ function AppHeader({
       </div>
 
       <div className="header-right">
-        <div className={`account-panel ${isEditing ? 'account-panel--editing' : ''}`}>
+        <div className="account-panel">
           <div className="account-panel__header">
             <div className="account-panel__identity">
               <div className="greeting">HI, {displayName.toUpperCase()}!</div>
-              <div className="email">{email.toUpperCase()}</div>
             </div>
-            <button
-              type="button"
-              className="settings-btn"
-              disabled={!isProfileReady}
-              onClick={handleToggleEditing}
-            >
-              {isEditing ? 'CANCEL' : 'SETTINGS'}
-            </button>
           </div>
-
-          {isEditing ? (
-            <form className="account-panel__form" onSubmit={handleSubmit}>
-              <label className="profile-field">
-                <span className="profile-field__label">DISPLAY NAME</span>
-                <input
-                  className="profile-field__input"
-                  name="displayName"
-                  type="text"
-                  value={formState.displayName}
-                  onChange={handleInputChange}
-                  placeholder="Enter your display name"
-                  maxLength={80}
-                />
-              </label>
-
-              <label className="profile-field">
-                <span className="profile-field__label">EMAIL</span>
-                <input
-                  className="profile-field__input"
-                  name="email"
-                  type="email"
-                  value={formState.email}
-                  onChange={handleInputChange}
-                  placeholder="Enter your email"
-                  maxLength={120}
-                />
-              </label>
-
-              {saveError ? <div className="profile-form__error">{saveError}</div> : null}
-
-              <button type="submit" className="profile-form__submit" disabled={isSaving}>
-                {isSaving ? 'SAVING...' : 'SAVE PROFILE'}
-              </button>
-            </form>
-          ) : null}
 
           <div className="account-panel__section account-panel__section--wallet">
             <div className="account-panel__section-copy">
@@ -280,7 +214,34 @@ function AppHeader({
               <div className="section-primary credits-value">${formattedUsdcBalance}</div>
               <div className="credits-title">USDC ON ARC</div>
             </div>
-            <img src={arrowUpIcon} alt="" aria-hidden="true" className="section-action-icon" />
+            <button
+              type="button"
+              className={`section-action-button replenish-btn${isReplenishDisabled ? ' replenish-btn--disabled' : ''}`}
+              disabled={isReplenishDisabled}
+              onClick={handleReplenish}
+              aria-label={
+                isReplenishing
+                  ? 'Replenishing...'
+                  : replenishCooldown > 0
+                    ? `Wait ${replenishCooldown}s`
+                    : 'Replenish 0.1 USDC'
+              }
+              title={
+                replenishError
+                  ? replenishError.message
+                  : replenishCooldown > 0
+                    ? `Available in ${replenishCooldown}s`
+                    : 'Top up 0.1 USDC from your external wallet'
+              }
+            >
+              <img
+                src={arrowUpIcon}
+                alt=""
+                aria-hidden="true"
+                className={`section-action-icon${isReplenishing ? ' replenish-btn__icon--spinning' : ''}`}
+              />
+            </button>
+
           </div>
 
           <div className="account-panel__footer">
@@ -297,6 +258,25 @@ function AppHeader({
         </div>
       </div>
     </header>
+
+    {showPopup
+      ? createPortal(
+          <div className="replenish-toast" role="status" aria-live="polite">
+            Your wallet will be replenished via 5 sec...
+          </div>,
+          document.body,
+        )
+      : null}
+
+    {replenishError && !showPopup
+      ? createPortal(
+          <div className="replenish-toast replenish-toast--error" role="alert">
+            {replenishError.message}
+          </div>,
+          document.body,
+        )
+      : null}
+  </>
   );
 }
 

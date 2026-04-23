@@ -1,19 +1,24 @@
 .agent-actions-panel {
-  margin-left: 64px;
   margin-bottom: 12px;
-  width: 300px;
+  max-width: 65%;
 }
 
 /* Summary row — acts as the toggle button */
 .agent-actions-summary {
   all: unset;
   box-sizing: border-box;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  width: 100%;
+  gap: 6px;
   cursor: pointer;
-  padding: 8px 0 4px;
-  gap: 0;
+  padding: 4px 10px 4px 8px;
+  background: #ebebeb;
+  border-radius: 20px;
+  transition: background 0.15s ease;
+}
+
+.agent-actions-summary:hover {
+  background: #e0e0e0;
 }
 
 .agent-actions-arrow {
@@ -21,8 +26,8 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 24px;
   transition: transform 0.18s ease;
+  color: #666666;
 }
 
 .agent-actions-summary--expanded .agent-actions-arrow {
@@ -35,56 +40,59 @@
 
 .agent-actions-count {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  font-style: normal;
   font-weight: 500;
-  font-size: 16px;
-  line-height: 19px;
-  color: #000000;
-  flex: 1;
+  font-size: 12px;
+  line-height: 15px;
+  color: #444444;
+}
+
+.agent-actions-separator {
+  width: 1px;
+  height: 10px;
+  background: #c8c8c8;
+  flex-shrink: 0;
 }
 
 .agent-actions-total {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  font-style: normal;
   font-weight: 500;
-  font-size: 16px;
-  line-height: 19px;
-  color: #000000;
-  margin-left: auto;
+  font-size: 12px;
+  line-height: 15px;
+  color: #444444;
 }
 
 /* Expanded list */
 .agent-actions-list {
   list-style: none;
-  margin: 0;
-  padding: 0;
+  margin: 6px 0 0 10px;
+  padding: 0 0 0 10px;
+  border-left: 1.5px solid #d4d4d4;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 2px;
 }
 
 .agent-actions-item {
   display: flex;
   align-items: center;
-  padding: 3px 0 3px 24px;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 0;
 }
 
 .agent-actions-item-label {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  font-style: normal;
   font-weight: 500;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 15px;
   color: #737373;
-  flex: 1;
 }
 
 .agent-actions-item-price {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  font-style: normal;
   font-weight: 500;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 15px;
   color: #737373;
-  margin-left: auto;
+  white-space: nowrap;
 }

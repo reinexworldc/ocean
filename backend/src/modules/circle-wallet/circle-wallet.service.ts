@@ -1,12 +1,14 @@
 import {
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
   NotFoundException,
 } from "@nestjs/common";
-import { GatewayClient } from "@circle-fin/x402-batching/client";
-import { getAddress } from "viem";
+import { GatewayClient, CHAIN_CONFIGS } from "@circle-fin/x402-batching/client";
+import { erc20Abi, getAddress, maxUint256, parseUnits } from "viem";
 import { type UserModel as User } from "../../generated/prisma/models/User.js";
 import { CircleWalletBlockchain } from "../../generated/prisma/enums.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
@@ -28,9 +30,14 @@ import type {
   WalletSummary,
 } from "./circle-wallet.types.js";
 
+const REPLENISH_AMOUNT_USDC = "0.1";
+const REPLENISH_COOLDOWN_MS = 30_000;
+
 @Injectable()
 export class CircleWalletService {
   private readonly logger = new Logger(CircleWalletService.name);
+  private readonly replenishCooldowns = new Map<string, number>();
+  private pendingApproval: Promise<void> | null = null;
 
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
@@ -44,6 +51,49 @@ export class CircleWalletService {
     const gatewayBalances = await this.readGatewayBalances(user);
 
     return this.toWalletSummary(user, gatewayBalances);
+  }
+
+  async replenishWalletForUser(userId: string, sessionId: string): Promise<{ txHash: string }> {
+    const lastReplenish = this.replenishCooldowns.get(sessionId) ?? 0;
+    const now = Date.now();
+
+    if (now - lastReplenish < REPLENISH_COOLDOWN_MS) {
+      const remainingSec = Math.ceil((REPLENISH_COOLDOWN_MS - (now - lastReplenish)) / 1000);
+      throw new HttpException(
+        `Please wait ${remainingSec}s before replenishing again.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user) {
+      throw new NotFoundException("User was not found.");
+    }
+
+    if (!user.circleWalletAddress) {
+      throw new NotFoundException("Circle wallet is not provisioned for this user.");
+    }
+
+    this.logger.log(
+      `Depositing ${REPLENISH_AMOUNT_USDC} USDC into Gateway for Circle wallet ${user.circleWalletAddress} (user ${userId}, session ${sessionId}).`,
+    );
+
+    const gateway = this.createGatewayClient();
+    await this.ensureGatewayApproval(gateway);
+    const result = await gateway.depositFor(
+      REPLENISH_AMOUNT_USDC,
+      getAddress(user.circleWalletAddress),
+      { skipApprovalCheck: true },
+    );
+
+    this.replenishCooldowns.set(sessionId, Date.now());
+
+    this.logger.log(
+      `Gateway depositFor complete. depositTxHash=${result.depositTxHash} amount=${result.formattedAmount} for user ${userId}.`,
+    );
+
+    return { txHash: result.depositTxHash };
   }
 
   async provisionWalletForUser(userId: string): Promise<WalletSummary> {
@@ -148,6 +198,65 @@ export class CircleWalletService {
       privateKey: this.requireArcPrivateKey(),
       rpcUrl,
     });
+  }
+
+  /**
+   * Ensures the funder wallet has sufficient USDC allowance for the Gateway
+   * contract. Approves maxUint256 once so that repeated depositFor calls never
+   * need to re-approve.
+   *
+   * Deduplicates concurrent approval calls: if an approval is already in
+   * flight, subsequent callers await the same promise instead of re-submitting
+   * a duplicate transaction. Uses a 15-minute timeout to accommodate slow Arc
+   * testnet block times.
+   */
+  private async ensureGatewayApproval(gateway: GatewayClient): Promise<void> {
+    if (this.pendingApproval) {
+      this.logger.log("Approval already in progress, awaiting existing tx...");
+      return this.pendingApproval;
+    }
+
+    const chainConfig = CHAIN_CONFIGS.arcTestnet;
+    const depositAmountRaw = parseUnits(REPLENISH_AMOUNT_USDC, 6);
+
+    const currentAllowance = await gateway.publicClient.readContract({
+      address: chainConfig.usdc,
+      abi: erc20Abi,
+      functionName: "allowance",
+      args: [gateway.account.address, chainConfig.gatewayWallet],
+    });
+
+    if (currentAllowance >= depositAmountRaw) {
+      return;
+    }
+
+    this.logger.log(
+      `USDC allowance insufficient (${currentAllowance}). Approving maxUint256 for Gateway contract ${chainConfig.gatewayWallet}.`,
+    );
+
+    const approveTxHash = await gateway.walletClient.writeContract({
+      address: chainConfig.usdc,
+      abi: erc20Abi,
+      functionName: "approve",
+      args: [chainConfig.gatewayWallet, maxUint256],
+    });
+
+    this.logger.log(`Approve tx submitted: ${approveTxHash}. Waiting for confirmation...`);
+
+    this.pendingApproval = gateway.publicClient
+      .waitForTransactionReceipt({ hash: approveTxHash, timeout: 900_000 })
+      .then(() => {
+        this.logger.log(`USDC approval confirmed: ${approveTxHash}`);
+      })
+      .catch((err) => {
+        this.logger.error(`USDC approval failed for tx ${approveTxHash}: ${err.message}`);
+        throw err;
+      })
+      .finally(() => {
+        this.pendingApproval = null;
+      });
+
+    return this.pendingApproval;
   }
 
   private requireArcPrivateKey(): `0x${string}` {

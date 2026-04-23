@@ -7,6 +7,8 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  Sse,
   UseGuards,
 } from "@nestjs/common";
 import { type AuthenticatedUser } from "../auth/auth.types.js";
@@ -63,5 +65,23 @@ export class ChatsController {
     @Body() dto: CreateChatMessageDto,
   ) {
     return this.chatsService.createChatMessage(user.id, chatId, dto);
+  }
+
+  @Post(":chatId/messages/stream-init")
+  initStreamChatMessage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("chatId") chatId: string,
+    @Body() dto: CreateChatMessageDto,
+  ) {
+    return this.chatsService.initStreamChatMessage(user.id, chatId, dto);
+  }
+
+  @Sse(":chatId/messages/stream")
+  streamChatMessage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("chatId") chatId: string,
+    @Query("token") token: string,
+  ) {
+    return this.chatsService.streamChatMessage(user.id, chatId, token);
   }
 }

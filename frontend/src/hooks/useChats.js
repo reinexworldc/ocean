@@ -2,9 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   createChat,
   createChatMessage,
+  deleteChat as apiDeleteChat,
   getChatMessages,
+  getChatMessageStreamUrl,
   getChats,
+  initChatMessageStream,
 } from '../api/chats';
+
+const ACTION_LABELS = {
+  get_market_overview: 'Market Overview',
+  get_token_details: 'Token Details',
+  get_token_history: 'Token History',
+  get_wallet_portfolio: 'Wallet Portfolio',
+};
 
 function createTemporaryMessage({ chatId, role, content, status }) {
   return {
@@ -23,6 +33,40 @@ function upsertChat(chats, nextChat) {
   return [nextChat, ...otherChats];
 }
 
+function toolStepKey(tool, tokenId) {
+  return tokenId ? `${tool}:${tokenId}` : tool;
+}
+
+function buildStepFromEvent(data) {
+  switch (data.phase) {
+    case 'planning':
+      return { phase: 'planning', text: 'Analyzing your request' };
+    case 'tool_executing':
+      return {
+        phase: 'tool_executing',
+        text: data.text ?? `Fetching ${(ACTION_LABELS[data.tool] ?? data.tool).toLowerCase()}`,
+        tool: data.tool,
+        tokenId: data.tokenId ?? null,
+        key: toolStepKey(data.tool, data.tokenId),
+      };
+    case 'tool_result':
+      return {
+        phase: 'tool_result',
+        text: data.text ?? (ACTION_LABELS[data.tool] ?? data.tool),
+        cost: data.cost,
+        tool: data.tool,
+        tokenId: data.tokenId ?? null,
+        key: toolStepKey(data.tool, data.tokenId),
+      };
+    case 'generating':
+      return { phase: 'generating', text: 'Generating response' };
+    default:
+      return { phase: data.phase, text: data.text ?? data.phase };
+  }
+}
+
+const STEP_PHASES = new Set(['planning', 'tool_executing', 'tool_result', 'generating']);
+
 export function useChats({ enabled = true } = {}) {
   const [chats, setChats] = useState([]);
   const [chatsStatus, setChatsStatus] = useState(enabled ? 'loading' : 'idle');
@@ -34,6 +78,7 @@ export function useChats({ enabled = true } = {}) {
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [agentActionsByMessageId, setAgentActionsByMessageId] = useState({});
+  const [streamingStateByMessageId, setStreamingStateByMessageId] = useState({});
 
   const loadChats = useCallback(async () => {
     if (!enabled) {
@@ -119,6 +164,22 @@ export function useChats({ enabled = true } = {}) {
     setSelectedChatId(chatId);
   }, []);
 
+  const handleDeleteChat = useCallback(
+    async (chatId) => {
+      if (!enabled) return;
+
+      setChats((current) => current.filter((c) => c.id !== chatId));
+      setSelectedChatId((sel) => (sel === chatId ? null : sel));
+
+      try {
+        await apiDeleteChat(chatId);
+      } catch {
+        await loadChats();
+      }
+    },
+    [enabled, loadChats],
+  );
+
   const handleCreateChat = useCallback(async () => {
     if (!enabled) {
       throw new Error('Authentication is required.');
@@ -158,8 +219,7 @@ export function useChats({ enabled = true } = {}) {
 
       setIsSendingMessage(true);
       let activeChatId = selectedChatId;
-      let optimisticUserMessageId = null;
-      let optimisticAssistantMessageId = null;
+      let tempAssistantId = null;
 
       try {
         if (!activeChatId) {
@@ -167,70 +227,200 @@ export function useChats({ enabled = true } = {}) {
           activeChatId = createdChat.id;
         }
 
-        const optimisticUserMessage = createTemporaryMessage({
-          chatId: activeChatId,
-          role: 'user',
+        // Step 1: create user message on server, get stream token
+        const initResponse = await initChatMessageStream(activeChatId, {
           content: trimmedContent,
-          status: 'completed',
         });
-        const optimisticAssistantMessage = createTemporaryMessage({
+
+        // Add the real user message + empty optimistic assistant message
+        const optimisticAssistant = createTemporaryMessage({
           chatId: activeChatId,
           role: 'assistant',
-          content: 'Thinking...',
+          content: '',
           status: 'pending',
         });
-        optimisticUserMessageId = optimisticUserMessage.id;
-        optimisticAssistantMessageId = optimisticAssistantMessage.id;
+        tempAssistantId = optimisticAssistant.id;
 
-        setMessagesByChatId((currentState) => ({
-          ...currentState,
+        setMessagesByChatId((current) => ({
+          ...current,
           [activeChatId]: [
-            ...(currentState[activeChatId] ?? []),
-            optimisticUserMessage,
-            optimisticAssistantMessage,
+            ...(current[activeChatId] ?? []).filter(
+              (m) => m.id !== initResponse.userMessage.id
+            ),
+            initResponse.userMessage,
+            optimisticAssistant,
           ],
         }));
-        setMessagesStatusByChatId((currentState) => ({
-          ...currentState,
+        setMessagesStatusByChatId((current) => ({
+          ...current,
           [activeChatId]: 'success',
         }));
 
-        const response = await createChatMessage(activeChatId, {
-          content: trimmedContent,
-        });
-
-        setChats((currentChats) => upsertChat(currentChats, response.chat));
-        setMessagesByChatId((currentState) => ({
-          ...currentState,
-          [activeChatId]: [
-            ...(currentState[activeChatId] ?? []).filter(
-              (message) =>
-                message.id !== optimisticUserMessage.id &&
-                message.id !== optimisticAssistantMessage.id
-            ),
-            response.userMessage,
-            response.assistantMessage,
-          ],
+        // Initialise streaming state
+        setStreamingStateByMessageId((current) => ({
+          ...current,
+          [tempAssistantId]: { phase: 'init', steps: [] },
         }));
 
-        if (Array.isArray(response.agentActions) && response.agentActions.length > 0) {
-          setAgentActionsByMessageId((currentState) => ({
-            ...currentState,
-            [response.assistantMessage.id]: response.agentActions,
-          }));
-        }
+        // Step 2: open SSE stream and wait for it to complete
+        const finalData = await new Promise((resolve, reject) => {
+          const url = getChatMessageStreamUrl(activeChatId, initResponse.streamToken);
+          const es = new EventSource(url, { withCredentials: true });
 
-        return response;
+          es.onmessage = (event) => {
+            let data;
+            try {
+              data = JSON.parse(event.data);
+            } catch {
+              return;
+            }
+
+            if (data.phase === 'token') {
+              // Append token to the message bubble
+              setMessagesByChatId((current) => ({
+                ...current,
+                [activeChatId]: (current[activeChatId] ?? []).map((m) =>
+                  m.id === tempAssistantId
+                    ? { ...m, content: m.content + data.text }
+                    : m
+                ),
+              }));
+
+              // Keep the last generating step active during token streaming
+              setStreamingStateByMessageId((current) => ({
+                ...current,
+                [tempAssistantId]: {
+                  ...(current[tempAssistantId] ?? { steps: [] }),
+                  phase: 'token',
+                },
+              }));
+            } else if (data.phase === 'final') {
+              es.close();
+
+              // Replace temp message with the persisted assistant message
+              setMessagesByChatId((current) => ({
+                ...current,
+                [activeChatId]: [
+                  ...(current[activeChatId] ?? []).filter(
+                    (m) => m.id !== tempAssistantId
+                  ),
+                  {
+                    id: data.messageId,
+                    chatId: activeChatId,
+                    role: 'assistant',
+                    content: data.content,
+                    status: 'completed',
+                    createdAt: new Date().toISOString(),
+                  },
+                ],
+              }));
+
+              setChats((current) => upsertChat(current, data.chat));
+
+              if (Array.isArray(data.agentActions) && data.agentActions.length > 0) {
+                setAgentActionsByMessageId((current) => ({
+                  ...current,
+                  [data.messageId]: data.agentActions,
+                }));
+              }
+
+              // Clean up streaming state
+              setStreamingStateByMessageId((current) => {
+                const next = { ...current };
+                delete next[tempAssistantId];
+                return next;
+              });
+
+              resolve(data);
+            } else if (data.phase === 'error') {
+              es.close();
+
+              setMessagesByChatId((current) => ({
+                ...current,
+                [activeChatId]: (current[activeChatId] ?? []).map((m) =>
+                  m.id === tempAssistantId
+                    ? {
+                        ...m,
+                        status: 'failed',
+                        content: data.text || 'Failed to generate a response.',
+                      }
+                    : m
+                ),
+              }));
+
+              setStreamingStateByMessageId((current) => {
+                const next = { ...current };
+                delete next[tempAssistantId];
+                return next;
+              });
+
+              reject(new Error(data.text || 'Stream error'));
+            } else if (STEP_PHASES.has(data.phase)) {
+              setStreamingStateByMessageId((current) => {
+                const old = current[tempAssistantId] ?? { steps: [] };
+
+                // When a tool result arrives, patch the matching tool_executing
+                // step (same tool + tokenId key) with the cost and final text
+                // instead of adding a redundant second row.
+                if (data.phase === 'tool_result') {
+                  const incomingKey = toolStepKey(data.tool, data.tokenId);
+                  const idx = [...old.steps]
+                    .reverse()
+                    .findIndex(
+                      (s) =>
+                        s.phase === 'tool_executing' &&
+                        (s.key ?? s.tool) === incomingKey,
+                    );
+                  if (idx !== -1) {
+                    const realIdx = old.steps.length - 1 - idx;
+                    const updated = old.steps.map((s, i) =>
+                      i === realIdx
+                        ? {
+                            ...s,
+                            phase: 'tool_result',
+                            text: data.text ?? s.text,
+                            cost: data.cost,
+                          }
+                        : s,
+                    );
+                    return {
+                      ...current,
+                      [tempAssistantId]: { phase: data.phase, steps: updated },
+                    };
+                  }
+                }
+
+                return {
+                  ...current,
+                  [tempAssistantId]: {
+                    phase: data.phase,
+                    steps: [...old.steps, buildStepFromEvent(data)],
+                  },
+                };
+              });
+            }
+          };
+
+          es.onerror = () => {
+            es.close();
+            reject(new Error('Stream connection failed.'));
+          };
+        });
+
+        return finalData;
       } catch (requestError) {
-        if (activeChatId && optimisticUserMessageId && optimisticAssistantMessageId) {
-          setMessagesByChatId((currentState) => ({
-            ...currentState,
-            [activeChatId]: (currentState[activeChatId] ?? []).filter(
-              (message) =>
-                message.id !== optimisticUserMessageId &&
-                message.id !== optimisticAssistantMessageId
+        if (activeChatId && tempAssistantId) {
+          setMessagesByChatId((current) => ({
+            ...current,
+            [activeChatId]: (current[activeChatId] ?? []).filter(
+              (m) => m.id !== tempAssistantId
             ),
           }));
+          setStreamingStateByMessageId((current) => {
+            const next = { ...current };
+            delete next[tempAssistantId];
+            return next;
+          });
         }
 
         if (activeChatId) {
@@ -259,6 +449,7 @@ export function useChats({ enabled = true } = {}) {
       setIsCreatingChat(false);
       setIsSendingMessage(false);
       setAgentActionsByMessageId({});
+      setStreamingStateByMessageId({});
       return;
     }
 
@@ -313,8 +504,10 @@ export function useChats({ enabled = true } = {}) {
     isCreatingChat,
     isSendingMessage,
     agentActionsByMessageId,
+    streamingStateByMessageId,
     selectChat: handleSelectChat,
     createChat: handleCreateChat,
+    deleteChat: handleDeleteChat,
     reloadChats: loadChats,
     reloadMessages: loadMessages,
     sendMessage,

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   BadRequestException,
   Inject,
@@ -5,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
+import { Observable } from "rxjs";
 import { MessageRole, MessageStatus } from "../../generated/prisma/enums.js";
 import { type ChatModel as Chat } from "../../generated/prisma/models/Chat.js";
 import { type MessageModel as Message } from "../../generated/prisma/models/Message.js";
@@ -12,8 +14,16 @@ import { PrismaService } from "../../prisma/prisma.service.js";
 import { type CreateChatDto } from "./dto/create-chat.dto.js";
 import { type CreateChatMessageDto } from "./dto/create-chat-message.dto.js";
 import { type UpdateChatDto } from "./dto/update-chat.dto.js";
-import { ChatAgentService } from "./chat-agent.service.js";
+import { ChatAgentService, type ExecutedAgentAction } from "./chat-agent.service.js";
 import { type GeminiChatMessage } from "./gemini.service.js";
+
+type StreamSession = {
+  userId: string;
+  chatId: string;
+  content: string;
+  circleWalletAddress: string | null;
+  expiresAt: number;
+};
 
 const DEFAULT_CHAT_TITLE = "New chat";
 const FAILED_ASSISTANT_MESSAGE = "I couldn't generate a response right now. Please try again.";
@@ -27,9 +37,12 @@ type ChatSummaryRecord = Chat & {
   };
 };
 
+const STREAM_SESSION_TTL_MS = 5 * 60 * 1_000;
+
 @Injectable()
 export class ChatsService {
   private readonly logger = new Logger(ChatsService.name);
+  private readonly streamSessions = new Map<string, StreamSession>();
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
@@ -202,6 +215,144 @@ export class ChatsService {
       generationFailed,
       agentActions,
     };
+  }
+
+  async initStreamChatMessage(userId: string, chatId: string, dto: CreateChatMessageDto) {
+    const chat = await this.ensureOwnedChat(userId, chatId);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { circleWalletAddress: true },
+    });
+    const content = this.normalizeMessageContent(dto.content);
+    const shouldRetitle = await this.shouldRefreshTitle(chat);
+    const nextTitle = shouldRetitle ? this.deriveTitleFromMessage(content) : null;
+
+    const userMessage = await this.prisma.message.create({
+      data: {
+        chatId,
+        role: MessageRole.USER,
+        content,
+        status: MessageStatus.COMPLETED,
+      },
+    });
+
+    await this.touchChat(chatId, nextTitle);
+
+    const streamToken = randomUUID();
+
+    this.streamSessions.set(streamToken, {
+      userId,
+      chatId,
+      content,
+      circleWalletAddress: user?.circleWalletAddress ?? null,
+      expiresAt: Date.now() + STREAM_SESSION_TTL_MS,
+    });
+
+    return {
+      userMessage: this.toMessageDto(userMessage),
+      streamToken,
+    };
+  }
+
+  streamChatMessage(userId: string, chatId: string, streamToken: string): Observable<{ data: unknown }> {
+    const session = this.streamSessions.get(streamToken);
+
+    if (!session || session.userId !== userId || session.chatId !== chatId) {
+      throw new NotFoundException("Stream session not found.");
+    }
+
+    if (Date.now() > session.expiresAt) {
+      this.streamSessions.delete(streamToken);
+      throw new NotFoundException("Stream session expired.");
+    }
+
+    this.streamSessions.delete(streamToken);
+
+    const { content, circleWalletAddress } = session;
+
+    return new Observable<{ data: unknown }>((subscriber) => {
+      void (async () => {
+        let fullContent = "";
+          const out = { executedActions: [] as ExecutedAgentAction[] };
+
+        try {
+          const history = await this.prisma.message.findMany({
+            where: { chatId },
+            orderBy: { createdAt: "asc" },
+          });
+
+          const agentStream = this.chatAgentService.generateReplyStream(
+            {
+              userId,
+              chatId,
+              history: this.toGeminiHistory(history),
+              latestUserMessage: content,
+              circleWalletAddress,
+            },
+            out,
+          );
+
+          for await (const event of agentStream) {
+            if (event.phase === "token") {
+              fullContent += event.text;
+            }
+
+            subscriber.next({ data: event });
+          }
+
+          const assistantMessage = await this.prisma.message.create({
+            data: {
+              chatId,
+              role: MessageRole.ASSISTANT,
+              content: fullContent || FAILED_ASSISTANT_MESSAGE,
+              status: fullContent ? MessageStatus.COMPLETED : MessageStatus.FAILED,
+            },
+          });
+
+          await this.touchChat(chatId);
+
+          const updatedChat = await this.findOwnedChatWithSummary(userId, chatId);
+
+          subscriber.next({
+            data: {
+              phase: "final",
+              messageId: assistantMessage.id,
+              content: assistantMessage.content,
+              agentActions: out.executedActions,
+              chat: this.toChatSummary(updatedChat),
+            },
+          });
+
+          subscriber.complete();
+        } catch (error) {
+          this.logger.error(
+            `Stream failed for chat ${chatId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+
+          subscriber.next({
+            data: {
+              phase: "error",
+              text: error instanceof Error ? error.message : "Failed to generate response.",
+            },
+          });
+
+          try {
+            await this.prisma.message.create({
+              data: {
+                chatId,
+                role: MessageRole.ASSISTANT,
+                content: FAILED_ASSISTANT_MESSAGE,
+                status: MessageStatus.FAILED,
+              },
+            });
+          } catch {
+            // Ignore cleanup errors
+          }
+
+          subscriber.complete();
+        }
+      })();
+    });
   }
 
   private async ensureOwnedChat(userId: string, chatId: string) {

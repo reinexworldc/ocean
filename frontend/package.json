@@ -15,6 +15,7 @@
     "process": "^0.11.10",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
+    "react-markdown": "^10.1.0",
     "siwe": "^3.0.0",
     "viem": "^2.48.3",
     "wagmi": "^3.6.4"
