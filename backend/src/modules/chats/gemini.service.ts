@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { HISTORY_PERIODS, type HistoryPeriod } from "../payments/paid-api-catalog.js";
+import { buildAnomalyDetectionPrompt } from "./prompts/anomaly-detection.prompt.js";
 import { buildPlanningPrompt } from "./prompts/planning.prompt.js";
 import { buildRefinementPrompt, type ExecutedActionSummary } from "./prompts/refinement.prompt.js";
 import { buildReplyPrompt } from "./prompts/reply.prompt.js";
@@ -91,9 +92,7 @@ export class GeminiService {
     alreadyExecuted: ExecutedActionSummary[];
     toolResults: Array<Record<string, unknown>>;
   }): Promise<PlannedPremiumAction[]> {
-    const rawPlan = await this.generateText(
-      buildRefinementPrompt(params),
-    );
+    const rawPlan = await this.generateText(buildRefinementPrompt(params));
     const parsedPlan = this.parseJsonObject(rawPlan);
     const actions = Array.isArray(parsedPlan.actions) ? parsedPlan.actions : [];
 
@@ -101,6 +100,35 @@ export class GeminiService {
     return this.normalizePlannedActions(actions).filter(
       (a) => a.type === "get_token_details" || a.type === "get_token_history",
     );
+  }
+
+  /**
+   * Third-pass anomaly planner: called after all tool results are collected.
+   * Detects data anomalies (sharp price moves, extreme sentiment) and returns
+   * additional diagnostic actions — each one triggers its own nano-payment.
+   *
+   * Returns both the planned actions and human-readable anomaly descriptions
+   * so the UI can surface what the agent spotted.
+   */
+  async planAnomalyInvestigation(params: {
+    latestUserMessage: string;
+    alreadyExecuted: ExecutedActionSummary[];
+    toolResults: Array<Record<string, unknown>>;
+  }): Promise<{ actions: PlannedPremiumAction[]; anomalies: string[] }> {
+    const rawPlan = await this.generateText(buildAnomalyDetectionPrompt(params));
+    const parsedPlan = this.parseJsonObject(rawPlan);
+
+    const rawActions = Array.isArray(parsedPlan.actions) ? parsedPlan.actions : [];
+    const anomalies = Array.isArray(parsedPlan.anomalies)
+      ? (parsedPlan.anomalies as unknown[]).filter((a): a is string => typeof a === "string")
+      : [];
+
+    // Only allow token-specific actions in anomaly investigation.
+    const actions = this.normalizePlannedActions(rawActions)
+      .filter((a) => a.type === "get_token_details" || a.type === "get_token_history")
+      .slice(0, 3);
+
+    return { actions, anomalies };
   }
 
   private getClient() {

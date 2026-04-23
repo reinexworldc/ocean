@@ -58,6 +58,12 @@ function buildStepFromEvent(data) {
         tokenId: data.tokenId ?? null,
         key: toolStepKey(data.tool, data.tokenId),
       };
+    case 'anomaly_detected':
+      return {
+        phase: 'anomaly_detected',
+        text: data.text ?? 'Anomaly detected — running diagnostic checks',
+        anomalies: Array.isArray(data.anomalies) ? data.anomalies : [],
+      };
     case 'generating':
       return { phase: 'generating', text: 'Generating response' };
     default:
@@ -65,7 +71,7 @@ function buildStepFromEvent(data) {
   }
 }
 
-const STEP_PHASES = new Set(['planning', 'tool_executing', 'tool_result', 'generating']);
+const STEP_PHASES = new Set(['planning', 'tool_executing', 'tool_result', 'anomaly_detected', 'generating']);
 
 export function useChats({ enabled = true } = {}) {
   const [chats, setChats] = useState([]);

@@ -1,7 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import './ThinkingStream.css';
 
-function StepIcon({ active, isToolResult }) {
+function StepIcon({ active, isToolResult, isAnomaly }) {
+  if (isAnomaly) {
+    return (
+      <span className="thinking-stream__step-icon thinking-stream__anomaly-icon" aria-label="Anomaly">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+          <path
+            d="M5 1L9 9H1L5 1Z"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinejoin="round"
+          />
+          <line x1="5" y1="4.5" x2="5" y2="6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          <circle cx="5" cy="7.8" r="0.5" fill="currentColor" />
+        </svg>
+      </span>
+    );
+  }
+
   if (active && !isToolResult) {
     return (
       <span className="thinking-stream__step-icon">
@@ -83,17 +100,25 @@ function ThinkingStream({ streamingState }) {
           {steps.map((step, index) => {
             const isLast = index === steps.length - 1;
             const isToolResult = step.phase === 'tool_result';
-            const isActive = isLast && isLive && !isToolResult;
+            const isAnomaly = step.phase === 'anomaly_detected';
+            const isActive = isLast && isLive && !isToolResult && !isAnomaly;
 
             return (
               <li
                 key={step.key ?? `${step.phase}-${index}`}
-                className={`thinking-stream__step${isActive ? ' thinking-stream__step--active' : ''}`}
+                className={`thinking-stream__step${isActive ? ' thinking-stream__step--active' : ''}${isAnomaly ? ' thinking-stream__step--anomaly' : ''}`}
               >
-                <StepIcon active={isActive} isToolResult={isToolResult} />
+                <StepIcon active={isActive} isToolResult={isToolResult} isAnomaly={isAnomaly} />
                 <span className="thinking-stream__step-text">{step.text}</span>
                 {step.cost ? (
                   <span className="thinking-stream__step-cost">{step.cost}</span>
+                ) : null}
+                {isAnomaly && step.anomalies?.length > 0 ? (
+                  <ul className="thinking-stream__anomaly-list">
+                    {step.anomalies.map((a, i) => (
+                      <li key={i} className="thinking-stream__anomaly-item">{a}</li>
+                    ))}
+                  </ul>
                 ) : null}
               </li>
             );

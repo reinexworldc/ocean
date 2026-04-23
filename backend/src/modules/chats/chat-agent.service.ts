@@ -59,6 +59,7 @@ export class ChatAgentService {
       plannedActions,
     );
 
+    // Phase 2 — resolve implicit token IDs from market data.
     const refinedActions = await this.geminiService.planRefinedActions({
       latestUserMessage: params.latestUserMessage,
       alreadyExecuted: this.toExecutedSummaries(plannedActions),
@@ -73,6 +74,24 @@ export class ChatAgentService {
         refinedActions,
       );
       executedActions.push(...refinedResults);
+    }
+
+    // Phase 3 — anomaly self-check: agent decides if data warrants investigation.
+    const allExecutedSoFar = [...plannedActions, ...refinedActions];
+    const { actions: anomalyActions } = await this.geminiService.planAnomalyInvestigation({
+      latestUserMessage: params.latestUserMessage,
+      alreadyExecuted: this.toExecutedSummaries(allExecutedSoFar),
+      toolResults: this.toToolResults(executedActions),
+    });
+
+    if (anomalyActions.length > 0) {
+      const anomalyResults = await this.runActionsParallel(
+        params.userId,
+        params.chatId,
+        params.circleWalletAddress,
+        anomalyActions,
+      );
+      executedActions.push(...anomalyResults);
     }
 
     return {
@@ -134,6 +153,33 @@ export class ChatAgentService {
         params.chatId,
         params.circleWalletAddress,
         refinedActions,
+        out.executedActions,
+      );
+    }
+
+    // Phase 3 — anomaly self-check: the agent scans collected data for anomalies
+    // and autonomously decides whether further diagnostic calls are needed.
+    // Each triggered call is a separate nano-payment.
+    const allExecutedSoFar = [...plannedActions, ...refinedActions];
+    const { actions: anomalyActions, anomalies } =
+      await this.geminiService.planAnomalyInvestigation({
+        latestUserMessage: params.latestUserMessage,
+        alreadyExecuted: this.toExecutedSummaries(allExecutedSoFar),
+        toolResults: this.toToolResults(out.executedActions),
+      });
+
+    if (anomalyActions.length > 0) {
+      yield {
+        phase: "anomaly_detected",
+        text: `Anomaly detected — running ${anomalyActions.length} diagnostic check${anomalyActions.length > 1 ? "s" : ""}...`,
+        anomalies,
+      };
+
+      yield* this.streamActions(
+        params.userId,
+        params.chatId,
+        params.circleWalletAddress,
+        anomalyActions,
         out.executedActions,
       );
     }
