@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Injectable, ServiceUnavailableException } from "@nestjs/common";
+import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { HISTORY_PERIODS, type HistoryPeriod } from "../payments/paid-api-catalog.js";
 import { buildAnomalyDetectionPrompt } from "./prompts/anomaly-detection.prompt.js";
 import { buildPlanningPrompt } from "./prompts/planning.prompt.js";
@@ -8,6 +8,14 @@ import { buildReplyPrompt } from "./prompts/reply.prompt.js";
 import { buildToolReplyPrompt } from "./prompts/tool-reply.prompt.js";
 
 const DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview";
+
+/**
+ * Ordered list of fallback models tried when the primary model returns 503 UNAVAILABLE.
+ * The primary model (from env or default) is always tried first and is not duplicated here.
+ */
+const FALLBACK_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash"];
+
+type ModelSwapCallback = (fromModel: string, toModel: string) => void;
 
 export type GeminiChatMessage = {
   role: "user" | "assistant" | "system";
@@ -29,14 +37,25 @@ export type PlannedPremiumAction =
     }
   | {
       type: "get_wallet_portfolio";
+    }
+  | {
+      type: "propose_buy_token";
+      tokenId: string;
+      tokenAmount: number;
+    }
+  | {
+      type: "propose_sell_token";
+      tokenId: string;
+      tokenAmount: number;
     };
 
 @Injectable()
 export class GeminiService {
+  private readonly logger = new Logger(GeminiService.name);
   private client: GoogleGenAI | null = null;
 
-  async generateReply(messages: GeminiChatMessage[]) {
-    const text = await this.generateText(buildReplyPrompt(messages));
+  async generateReply(messages: GeminiChatMessage[], onModelSwap?: ModelSwapCallback) {
+    const text = await this.generateText(buildReplyPrompt(messages), onModelSwap);
 
     if (!text) {
       throw new ServiceUnavailableException("Gemini returned an empty response.");
@@ -45,15 +64,24 @@ export class GeminiService {
     return text;
   }
 
-  async *generateReplyStream(messages: GeminiChatMessage[]): AsyncGenerator<string> {
-    yield* this.generateTextStream(buildReplyPrompt(messages));
+  async *generateReplyStream(
+    messages: GeminiChatMessage[],
+    onModelSwap?: ModelSwapCallback,
+  ): AsyncGenerator<string> {
+    yield* this.generateTextStream(buildReplyPrompt(messages), onModelSwap);
   }
 
-  async generateReplyWithToolResults(params: {
-    messages: GeminiChatMessage[];
-    toolResults: Array<Record<string, unknown>>;
-  }) {
-    const text = await this.generateText(buildToolReplyPrompt(params.messages, params.toolResults));
+  async generateReplyWithToolResults(
+    params: {
+      messages: GeminiChatMessage[];
+      toolResults: Array<Record<string, unknown>>;
+    },
+    onModelSwap?: ModelSwapCallback,
+  ) {
+    const text = await this.generateText(
+      buildToolReplyPrompt(params.messages, params.toolResults),
+      onModelSwap,
+    );
 
     if (!text) {
       throw new ServiceUnavailableException("Gemini returned an empty orchestrated response.");
@@ -62,19 +90,29 @@ export class GeminiService {
     return text;
   }
 
-  async *generateReplyWithToolResultsStream(params: {
-    messages: GeminiChatMessage[];
-    toolResults: Array<Record<string, unknown>>;
-  }): AsyncGenerator<string> {
-    yield* this.generateTextStream(buildToolReplyPrompt(params.messages, params.toolResults));
+  async *generateReplyWithToolResultsStream(
+    params: {
+      messages: GeminiChatMessage[];
+      toolResults: Array<Record<string, unknown>>;
+    },
+    onModelSwap?: ModelSwapCallback,
+  ): AsyncGenerator<string> {
+    yield* this.generateTextStream(
+      buildToolReplyPrompt(params.messages, params.toolResults),
+      onModelSwap,
+    );
   }
 
-  async planPremiumActions(params: {
-    latestUserMessage: string;
-    circleWalletAddress: string | null;
-  }): Promise<PlannedPremiumAction[]> {
+  async planPremiumActions(
+    params: {
+      latestUserMessage: string;
+      circleWalletAddress: string | null;
+    },
+    onModelSwap?: ModelSwapCallback,
+  ): Promise<PlannedPremiumAction[]> {
     const rawPlan = await this.generateText(
       buildPlanningPrompt(params.latestUserMessage, params.circleWalletAddress),
+      onModelSwap,
     );
     const parsedPlan = this.parseJsonObject(rawPlan);
     const actions = Array.isArray(parsedPlan.actions) ? parsedPlan.actions : [];
@@ -87,12 +125,15 @@ export class GeminiService {
    * Discovers additional token-specific actions the user implicitly requested
    * (e.g. "top tokens") that couldn't be resolved without the market data.
    */
-  async planRefinedActions(params: {
-    latestUserMessage: string;
-    alreadyExecuted: ExecutedActionSummary[];
-    toolResults: Array<Record<string, unknown>>;
-  }): Promise<PlannedPremiumAction[]> {
-    const rawPlan = await this.generateText(buildRefinementPrompt(params));
+  async planRefinedActions(
+    params: {
+      latestUserMessage: string;
+      alreadyExecuted: ExecutedActionSummary[];
+      toolResults: Array<Record<string, unknown>>;
+    },
+    onModelSwap?: ModelSwapCallback,
+  ): Promise<PlannedPremiumAction[]> {
+    const rawPlan = await this.generateText(buildRefinementPrompt(params), onModelSwap);
     const parsedPlan = this.parseJsonObject(rawPlan);
     const actions = Array.isArray(parsedPlan.actions) ? parsedPlan.actions : [];
 
@@ -110,12 +151,15 @@ export class GeminiService {
    * Returns both the planned actions and human-readable anomaly descriptions
    * so the UI can surface what the agent spotted.
    */
-  async planAnomalyInvestigation(params: {
-    latestUserMessage: string;
-    alreadyExecuted: ExecutedActionSummary[];
-    toolResults: Array<Record<string, unknown>>;
-  }): Promise<{ actions: PlannedPremiumAction[]; anomalies: string[] }> {
-    const rawPlan = await this.generateText(buildAnomalyDetectionPrompt(params));
+  async planAnomalyInvestigation(
+    params: {
+      latestUserMessage: string;
+      alreadyExecuted: ExecutedActionSummary[];
+      toolResults: Array<Record<string, unknown>>;
+    },
+    onModelSwap?: ModelSwapCallback,
+  ): Promise<{ actions: PlannedPremiumAction[]; anomalies: string[] }> {
+    const rawPlan = await this.generateText(buildAnomalyDetectionPrompt(params), onModelSwap);
     const parsedPlan = this.parseJsonObject(rawPlan);
 
     const rawActions = Array.isArray(parsedPlan.actions) ? parsedPlan.actions : [];
@@ -153,28 +197,100 @@ export class GeminiService {
     return process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
   }
 
-  private async generateText(prompt: string) {
-    const response = await this.getClient().models.generateContent({
-      model: this.getModel(),
-      contents: prompt,
-    });
-
-    return response.text?.trim();
+  private isUnavailableError(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : JSON.stringify(err);
+    return /503|UNAVAILABLE|high.demand/i.test(msg);
   }
 
-  private async *generateTextStream(prompt: string): AsyncGenerator<string> {
-    const stream = await this.getClient().models.generateContentStream({
-      model: this.getModel(),
-      contents: prompt,
-    });
+  private buildModelChain(): string[] {
+    const primary = this.getModel();
+    return [primary, ...FALLBACK_MODELS.filter((m) => m !== primary)];
+  }
 
-    for await (const chunk of stream) {
-      const text = chunk.text;
+  private async generateText(
+    prompt: string,
+    onModelSwap?: ModelSwapCallback,
+  ): Promise<string | undefined> {
+    const models = this.buildModelChain();
+    const primaryModel = models[0] ?? this.getModel();
+    let lastError: unknown;
 
-      if (text) {
-        yield text;
+    for (const model of models) {
+      try {
+        const response = await this.getClient().models.generateContent({
+          model,
+          contents: prompt,
+        });
+
+        if (model !== primaryModel) {
+          this.logger.warn(`Model swap: ${primaryModel} → ${model} (unavailable)`);
+          onModelSwap?.(primaryModel, model);
+        }
+
+        return response.text?.trim();
+      } catch (err) {
+        if (this.isUnavailableError(err)) {
+          this.logger.warn(
+            `Model ${model} unavailable, trying next fallback. Error: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          lastError = err;
+          continue;
+        }
+
+        throw err;
       }
     }
+
+    throw lastError;
+  }
+
+  private async *generateTextStream(
+    prompt: string,
+    onModelSwap?: ModelSwapCallback,
+  ): AsyncGenerator<string> {
+    const models = this.buildModelChain();
+    const primaryModel = models[0] ?? this.getModel();
+    let lastError: unknown;
+
+    for (const model of models) {
+      let tokensYielded = 0;
+
+      try {
+        const stream = await this.getClient().models.generateContentStream({
+          model,
+          contents: prompt,
+        });
+
+        // Notify BEFORE yielding any tokens so callers can drain swap events first.
+        if (model !== primaryModel) {
+          this.logger.warn(`Model swap (stream): ${primaryModel} → ${model} (unavailable)`);
+          onModelSwap?.(primaryModel, model);
+        }
+
+        for await (const chunk of stream) {
+          if (chunk.text) {
+            tokensYielded++;
+            yield chunk.text;
+          }
+        }
+
+        return;
+      } catch (err) {
+        // Only retry on unavailable errors and only if no tokens have been streamed yet,
+        // otherwise the response would be inconsistent.
+        if (this.isUnavailableError(err) && tokensYielded === 0) {
+          this.logger.warn(
+            `Model ${model} unavailable (stream), trying next fallback. Error: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          lastError = err;
+          continue;
+        }
+
+        throw err;
+      }
+    }
+
+    throw lastError;
   }
 
   private parseJsonObject(value: string | undefined) {
@@ -249,6 +365,24 @@ export class GeminiService {
           type,
           tokenId,
           period,
+        });
+        continue;
+      }
+
+      if (type === "propose_buy_token" || type === "propose_sell_token") {
+        const tokenId = this.normalizeTokenId(action.tokenId);
+        const tokenAmount = typeof action.tokenAmount === "number" && action.tokenAmount > 0
+          ? action.tokenAmount
+          : null;
+
+        if (!tokenId || !tokenAmount) {
+          continue;
+        }
+
+        dedupedActions.set(`${type}:${tokenId}`, {
+          type,
+          tokenId,
+          tokenAmount,
         });
       }
     }

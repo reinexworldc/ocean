@@ -147,6 +147,19 @@
   white-space: nowrap;
 }
 
+/* Model swap step */
+.thinking-stream__step--model-swap .thinking-stream__step-text {
+  color: #6366f1;
+}
+
+.thinking-stream__swap-icon {
+  color: #6366f1;
+}
+
+.thinking-stream__swap-icon svg {
+  display: block;
+}
+
 /* Anomaly step */
 .thinking-stream__step--anomaly {
   flex-wrap: wrap;

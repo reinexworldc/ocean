@@ -1,8 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { type GeminiChatMessage, GeminiService, type PlannedPremiumAction } from "./gemini.service.js";
 import { PaymentsService } from "../payments/payments.service.js";
+import { TradeService } from "../trade/trade.service.js";
 import { type HistoryPeriod, paidApiCatalog } from "../payments/paid-api-catalog.js";
-import { type AgentStreamEvent } from "./agent-stream.types.js";
+import { type AgentStreamEvent, type TradeProposal } from "./agent-stream.types.js";
 
 const ACTION_LABELS: Record<string, string> = {
   get_market_overview: "Market Overview",
@@ -24,6 +25,7 @@ export type ExecutedAgentAction = {
 export type ChatAgentResult = {
   content: string;
   executedActions: ExecutedAgentAction[];
+  tradeProposal: TradeProposal | null;
 };
 
 @Injectable()
@@ -31,6 +33,7 @@ export class ChatAgentService {
   constructor(
     @Inject(GeminiService) private readonly geminiService: GeminiService,
     @Inject(PaymentsService) private readonly paymentsService: PaymentsService,
+    @Inject(TradeService) private readonly tradeService: TradeService,
   ) {}
 
   async generateReply(params: {
@@ -49,6 +52,22 @@ export class ChatAgentService {
       return {
         content: await this.geminiService.generateReply(params.history),
         executedActions: [],
+        tradeProposal: null,
+      };
+    }
+
+    // Check if the plan is a trade proposal (handled separately — no x402 needed).
+    const tradeAction = plannedActions.find(
+      (a) => a.type === "propose_buy_token" || a.type === "propose_sell_token",
+    );
+
+    if (tradeAction && (tradeAction.type === "propose_buy_token" || tradeAction.type === "propose_sell_token")) {
+      const proposal = await this.buildTradeProposal(tradeAction, params.circleWalletAddress);
+      const content = await this.geminiService.generateReply(params.history);
+      return {
+        content,
+        executedActions: [],
+        tradeProposal: proposal,
       };
     }
 
@@ -100,6 +119,7 @@ export class ChatAgentService {
         toolResults: this.toToolResults(executedActions),
       }),
       executedActions,
+      tradeProposal: null,
     };
   }
 
@@ -111,21 +131,52 @@ export class ChatAgentService {
       latestUserMessage: string;
       circleWalletAddress: string | null;
     },
-    out: { executedActions: ExecutedAgentAction[] },
+    out: { executedActions: ExecutedAgentAction[]; tradeProposal: TradeProposal | null },
   ): AsyncGenerator<AgentStreamEvent> {
     yield { phase: "planning", text: "Analyzing your request..." };
 
-    const plannedActions = await this.geminiService.planPremiumActions({
-      latestUserMessage: params.latestUserMessage,
-      circleWalletAddress: params.circleWalletAddress,
-    });
+    const swapQueue: Array<{ from: string; to: string }> = [];
+    const onModelSwap = (from: string, to: string) => swapQueue.push({ from, to });
+
+    const plannedActions = await this.geminiService.planPremiumActions(
+      {
+        latestUserMessage: params.latestUserMessage,
+        circleWalletAddress: params.circleWalletAddress,
+      },
+      onModelSwap,
+    );
+    yield* this.drainModelSwapEvents(swapQueue);
 
     if (plannedActions.length === 0) {
       yield { phase: "generating", text: "Generating response..." };
 
-      for await (const token of this.geminiService.generateReplyStream(params.history)) {
-        yield { phase: "token", text: token };
-      }
+      // Await the first token so the onModelSwap callback fires before we yield any tokens.
+      const tokenStream = this.geminiService.generateReplyStream(params.history, onModelSwap);
+      const first = await tokenStream.next();
+      yield* this.drainModelSwapEvents(swapQueue);
+      if (!first.done && first.value) yield { phase: "token", text: first.value };
+      for await (const token of tokenStream) yield { phase: "token", text: token };
+
+      return;
+    }
+
+    // Check if the plan is a trade proposal — handle without x402 payment.
+    const tradeAction = plannedActions.find(
+      (a) => a.type === "propose_buy_token" || a.type === "propose_sell_token",
+    );
+
+    if (tradeAction && (tradeAction.type === "propose_buy_token" || tradeAction.type === "propose_sell_token")) {
+      yield { phase: "planning", text: "Preparing trade proposal..." };
+      const proposal = await this.buildTradeProposal(tradeAction, params.circleWalletAddress);
+      out.tradeProposal = proposal;
+      yield { phase: "trade_proposal", proposal };
+      yield { phase: "generating", text: "Generating response..." };
+
+      const tokenStream = this.geminiService.generateReplyStream(params.history, onModelSwap);
+      const first = await tokenStream.next();
+      yield* this.drainModelSwapEvents(swapQueue);
+      if (!first.done && first.value) yield { phase: "token", text: first.value };
+      for await (const token of tokenStream) yield { phase: "token", text: token };
 
       return;
     }
@@ -142,11 +193,15 @@ export class ChatAgentService {
     // Phase 2 — refinement: discover implicit tokens (e.g. "top tokens")
     // Yield a visible spinner step so the UI never goes silent during the Gemini call.
     yield { phase: "planning", text: "Refining analysis..." };
-    const refinedActions = await this.geminiService.planRefinedActions({
-      latestUserMessage: params.latestUserMessage,
-      alreadyExecuted: this.toExecutedSummaries(plannedActions),
-      toolResults: this.toToolResults(out.executedActions),
-    });
+    const refinedActions = await this.geminiService.planRefinedActions(
+      {
+        latestUserMessage: params.latestUserMessage,
+        alreadyExecuted: this.toExecutedSummaries(plannedActions),
+        toolResults: this.toToolResults(out.executedActions),
+      },
+      onModelSwap,
+    );
+    yield* this.drainModelSwapEvents(swapQueue);
 
     if (refinedActions.length > 0) {
       yield* this.streamActions(
@@ -162,11 +217,15 @@ export class ChatAgentService {
     yield { phase: "planning", text: "Scanning for anomalies..." };
     const allExecutedSoFar = [...plannedActions, ...refinedActions];
     const { actions: anomalyActions, anomalies } =
-      await this.geminiService.planAnomalyInvestigation({
-        latestUserMessage: params.latestUserMessage,
-        alreadyExecuted: this.toExecutedSummaries(allExecutedSoFar),
-        toolResults: this.toToolResults(out.executedActions),
-      });
+      await this.geminiService.planAnomalyInvestigation(
+        {
+          latestUserMessage: params.latestUserMessage,
+          alreadyExecuted: this.toExecutedSummaries(allExecutedSoFar),
+          toolResults: this.toToolResults(out.executedActions),
+        },
+        onModelSwap,
+      );
+    yield* this.drainModelSwapEvents(swapQueue);
 
     if (anomalyActions.length > 0) {
       yield {
@@ -186,11 +245,32 @@ export class ChatAgentService {
 
     yield { phase: "generating", text: "Generating response..." };
 
-    for await (const token of this.geminiService.generateReplyWithToolResultsStream({
-      messages: params.history,
-      toolResults: this.toToolResults(out.executedActions),
-    })) {
-      yield { phase: "token", text: token };
+    // Await the first token so the onModelSwap callback fires before we yield any tokens.
+    const tokenStream = this.geminiService.generateReplyWithToolResultsStream(
+      {
+        messages: params.history,
+        toolResults: this.toToolResults(out.executedActions),
+      },
+      onModelSwap,
+    );
+    const first = await tokenStream.next();
+    yield* this.drainModelSwapEvents(swapQueue);
+    if (!first.done && first.value) yield { phase: "token", text: first.value };
+    for await (const token of tokenStream) yield { phase: "token", text: token };
+  }
+
+  /** Yields model_swap events for each queued swap and clears the queue. */
+  private *drainModelSwapEvents(
+    swapQueue: Array<{ from: string; to: string }>,
+  ): Generator<AgentStreamEvent> {
+    while (swapQueue.length > 0) {
+      const ev = swapQueue.shift()!;
+      yield {
+        phase: "model_swap",
+        text: `${ev.from} is busy — switched to ${ev.to}`,
+        fromModel: ev.from,
+        toModel: ev.to,
+      };
     }
   }
 
@@ -307,6 +387,27 @@ export class ChatAgentService {
     return { label, tokenId, tokenSuffix };
   }
 
+  private async buildTradeProposal(
+    action: Extract<PlannedPremiumAction, { type: "propose_buy_token" | "propose_sell_token" }>,
+    walletAddress: string | null,
+  ): Promise<TradeProposal> {
+    const token = await this.tradeService.resolveToken(action.tokenId);
+    const priceUsdEach = (token as { current: { price: number } }).current.price;
+    const totalValueUsd = priceUsdEach * action.tokenAmount;
+
+    return {
+      tokenId: (token as { symbol: string }).symbol,
+      tokenSymbol: (token as { symbol: string }).symbol,
+      tokenAddress: (token as { address: string }).address,
+      direction: action.type === "propose_buy_token" ? "BUY" : "SELL",
+      tokenAmount: action.tokenAmount,
+      priceUsdEach,
+      totalValueUsd,
+      serviceFeeUsd: "0.05",
+      walletAddress: walletAddress ?? "",
+    };
+  }
+
   private async executeAction(
     userId: string,
     chatId: string,
@@ -408,6 +509,11 @@ export class ChatAgentService {
           paymentNetwork: response.paymentNetwork,
           summary: this.summarizePortfolio(response.data),
         };
+      }
+      case "propose_buy_token":
+      case "propose_sell_token": {
+        // Trade proposals are handled upstream — they should never reach executeAction.
+        throw new Error(`Trade proposal action "${action.type}" must be handled before executeAction.`);
       }
       default: {
         const exhaustiveCheck: never = action;

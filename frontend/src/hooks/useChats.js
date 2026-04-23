@@ -64,14 +64,27 @@ function buildStepFromEvent(data) {
         text: data.text ?? 'Anomaly detected — running diagnostic checks',
         anomalies: Array.isArray(data.anomalies) ? data.anomalies : [],
       };
+    case 'model_swap':
+      return {
+        phase: 'model_swap',
+        text: data.text ?? 'Primary model busy — switched to backup',
+        fromModel: data.fromModel ?? '',
+        toModel: data.toModel ?? '',
+      };
     case 'generating':
       return { phase: 'generating', text: 'Generating response' };
+    case 'trade_proposal':
+      return {
+        phase: 'trade_proposal',
+        text: `${data.proposal?.direction === 'BUY' ? 'Buy' : 'Sell'} ${data.proposal?.tokenSymbol ?? ''} proposal ready`,
+        proposal: data.proposal ?? null,
+      };
     default:
       return { phase: data.phase, text: data.text ?? data.phase };
   }
 }
 
-const STEP_PHASES = new Set(['planning', 'tool_executing', 'tool_result', 'anomaly_detected', 'generating']);
+const STEP_PHASES = new Set(['planning', 'tool_executing', 'tool_result', 'anomaly_detected', 'model_swap', 'generating', 'trade_proposal']);
 
 export function useChats({ enabled = true } = {}) {
   const [chats, setChats] = useState([]);
@@ -84,6 +97,7 @@ export function useChats({ enabled = true } = {}) {
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [agentActionsByMessageId, setAgentActionsByMessageId] = useState({});
   const [streamingStateByMessageId, setStreamingStateByMessageId] = useState({});
+  const [tradeProposalsByMessageId, setTradeProposalsByMessageId] = useState({});
 
   const loadChats = useCallback(async () => {
     if (!enabled) {
@@ -329,6 +343,13 @@ export function useChats({ enabled = true } = {}) {
                 }));
               }
 
+              if (data.tradeProposal) {
+                setTradeProposalsByMessageId((current) => ({
+                  ...current,
+                  [data.messageId]: data.tradeProposal,
+                }));
+              }
+
               // Clean up streaming state
               setStreamingStateByMessageId((current) => {
                 const next = { ...current };
@@ -475,6 +496,7 @@ export function useChats({ enabled = true } = {}) {
       setIsCreatingChat(false);
       setAgentActionsByMessageId({});
       setStreamingStateByMessageId({});
+      setTradeProposalsByMessageId({});
       return;
     }
 
@@ -532,6 +554,7 @@ export function useChats({ enabled = true } = {}) {
     isCreatingChat,
     agentActionsByMessageId,
     streamingStateByMessageId,
+    tradeProposalsByMessageId,
     selectChat: handleSelectChat,
     createChat: handleCreateChat,
     deleteChat: handleDeleteChat,

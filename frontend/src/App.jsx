@@ -183,6 +183,7 @@ function App() {
                   walletError={walletSession.error}
                   agentActionsByMessageId={chats.agentActionsByMessageId}
                   streamingStateByMessageId={chats.streamingStateByMessageId}
+                  tradeProposalsByMessageId={chats.tradeProposalsByMessageId}
                   user={currentUser}
                   isActive={isActive}
                   multiPane={panes.length > 1}

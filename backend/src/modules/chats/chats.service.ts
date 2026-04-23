@@ -15,6 +15,7 @@ import { type CreateChatDto } from "./dto/create-chat.dto.js";
 import { type CreateChatMessageDto } from "./dto/create-chat-message.dto.js";
 import { type UpdateChatDto } from "./dto/update-chat.dto.js";
 import { ChatAgentService, type ExecutedAgentAction } from "./chat-agent.service.js";
+import { type TradeProposal } from "./agent-stream.types.js";
 import { type GeminiChatMessage } from "./gemini.service.js";
 
 type StreamSession = {
@@ -168,6 +169,7 @@ export class ChatsService {
     let generationFailed = false;
     let assistantMessage: Message;
     let agentActions: Array<Record<string, unknown>> = [];
+    let tradeProposal: TradeProposal | null = null;
 
     try {
       const agentResult = await this.chatAgentService.generateReply({
@@ -179,6 +181,7 @@ export class ChatsService {
       });
       const assistantContent = agentResult.content;
       agentActions = agentResult.executedActions;
+      tradeProposal = agentResult.tradeProposal;
 
       assistantMessage = await this.prisma.message.create({
         data: {
@@ -214,6 +217,7 @@ export class ChatsService {
       assistantMessage: this.toMessageDto(assistantMessage),
       generationFailed,
       agentActions,
+      tradeProposal,
     };
   }
 
@@ -273,7 +277,7 @@ export class ChatsService {
     return new Observable<{ data: unknown }>((subscriber) => {
       void (async () => {
         let fullContent = "";
-          const out = { executedActions: [] as ExecutedAgentAction[] };
+          const out = { executedActions: [] as ExecutedAgentAction[], tradeProposal: null as TradeProposal | null };
 
         try {
           const history = await this.prisma.message.findMany({
@@ -319,6 +323,7 @@ export class ChatsService {
               messageId: assistantMessage.id,
               content: assistantMessage.content,
               agentActions: out.executedActions,
+              tradeProposal: out.tradeProposal,
               chat: this.toChatSummary(updatedChat),
             },
           });

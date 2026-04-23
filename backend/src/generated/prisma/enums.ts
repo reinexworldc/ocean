@@ -50,3 +50,20 @@ export const TransactionStatus = {
 } as const
 
 export type TransactionStatus = (typeof TransactionStatus)[keyof typeof TransactionStatus]
+
+
+export const TradeDirection = {
+  BUY: 'BUY',
+  SELL: 'SELL'
+} as const
+
+export type TradeDirection = (typeof TradeDirection)[keyof typeof TradeDirection]
+
+
+export const TradeStatus = {
+  PENDING: 'PENDING',
+  COMPLETED: 'COMPLETED',
+  FAILED: 'FAILED'
+} as const
+
+export type TradeStatus = (typeof TradeStatus)[keyof typeof TradeStatus]

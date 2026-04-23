@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import './ChatPanel.css';
 import AgentActionsPanel from './AgentActionsPanel';
 import ThinkingStream from './ThinkingStream';
+import TradeCard from './TradeCard';
 
 function getUserDisplayName(user) {
   if (user?.displayName?.trim()) {
@@ -40,6 +41,7 @@ function ChatPanel({
   walletError,
   agentActionsByMessageId,
   streamingStateByMessageId,
+  tradeProposalsByMessageId,
   user,
   isActive,
   multiPane,
@@ -237,6 +239,8 @@ function ChatPanel({
             message.role === 'assistant' ? streamingStateByMessageId?.[message.id] : null;
           const agentActions =
             message.role === 'assistant' ? agentActionsByMessageId?.[message.id] : null;
+          const tradeProposal =
+            message.role === 'assistant' ? tradeProposalsByMessageId?.[message.id] : null;
           const hideEmptyBubble = message.status === 'pending' && !message.content;
 
           return (
@@ -265,6 +269,16 @@ function ChatPanel({
                       )}
                     </div>
                   </div>
+                </div>
+              ) : null}
+
+              {tradeProposal ? (
+                <div className="assistant-row" style={{ paddingLeft: '0' }}>
+                  <TradeCard
+                    proposal={tradeProposal}
+                    chatId={chat?.id}
+                    onCancel={() => {}}
+                  />
                 </div>
               ) : null}
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import './ThinkingStream.css';
 
-function StepIcon({ active, isToolResult, isAnomaly }) {
+function StepIcon({ active, isToolResult, isAnomaly, isModelSwap }) {
   if (isAnomaly) {
     return (
       <span className="thinking-stream__step-icon thinking-stream__anomaly-icon" aria-label="Anomaly">
@@ -14,6 +14,17 @@ function StepIcon({ active, isToolResult, isAnomaly }) {
           />
           <line x1="5" y1="4.5" x2="5" y2="6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           <circle cx="5" cy="7.8" r="0.5" fill="currentColor" />
+        </svg>
+      </span>
+    );
+  }
+
+  if (isModelSwap) {
+    return (
+      <span className="thinking-stream__step-icon thinking-stream__swap-icon" aria-label="Model swap">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+          <path d="M1.5 3.5h7M6.5 1.5l2 2-2 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M8.5 6.5h-7M3.5 4.5l-2 2 2 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </span>
     );
@@ -101,14 +112,15 @@ function ThinkingStream({ streamingState }) {
             const isLast = index === steps.length - 1;
             const isToolResult = step.phase === 'tool_result';
             const isAnomaly = step.phase === 'anomaly_detected';
-            const isActive = isLast && isLive && !isToolResult && !isAnomaly;
+            const isModelSwap = step.phase === 'model_swap';
+            const isActive = isLast && isLive && !isToolResult && !isAnomaly && !isModelSwap;
 
             return (
               <li
                 key={step.key ?? `${step.phase}-${index}`}
-                className={`thinking-stream__step${isActive ? ' thinking-stream__step--active' : ''}${isAnomaly ? ' thinking-stream__step--anomaly' : ''}`}
+                className={`thinking-stream__step${isActive ? ' thinking-stream__step--active' : ''}${isAnomaly ? ' thinking-stream__step--anomaly' : ''}${isModelSwap ? ' thinking-stream__step--model-swap' : ''}`}
               >
-                <StepIcon active={isActive} isToolResult={isToolResult} isAnomaly={isAnomaly} />
+                <StepIcon active={isActive} isToolResult={isToolResult} isAnomaly={isAnomaly} isModelSwap={isModelSwap} />
                 <span className="thinking-stream__step-text">{step.text}</span>
                 {step.cost ? (
                   <span className="thinking-stream__step-cost">{step.cost}</span>

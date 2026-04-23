@@ -37,3 +37,8 @@ export type Message = Prisma.MessageModel
  * 
  */
 export type Transaction = Prisma.TransactionModel
+/**
+ * Model Trade
+ * 
+ */
+export type Trade = Prisma.TradeModel

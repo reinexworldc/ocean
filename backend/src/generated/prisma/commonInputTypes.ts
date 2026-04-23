@@ -259,6 +259,40 @@ export type JsonNullableWithAggregatesFilterBase<$PrismaModel = never> = {
   _max?: Prisma.NestedJsonNullableFilter<$PrismaModel>
 }
 
+export type EnumTradeDirectionFilter<$PrismaModel = never> = {
+  equals?: $Enums.TradeDirection | Prisma.EnumTradeDirectionFieldRefInput<$PrismaModel>
+  in?: $Enums.TradeDirection[]
+  notIn?: $Enums.TradeDirection[]
+  not?: Prisma.NestedEnumTradeDirectionFilter<$PrismaModel> | $Enums.TradeDirection
+}
+
+export type EnumTradeStatusFilter<$PrismaModel = never> = {
+  equals?: $Enums.TradeStatus | Prisma.EnumTradeStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.TradeStatus[]
+  notIn?: $Enums.TradeStatus[]
+  not?: Prisma.NestedEnumTradeStatusFilter<$PrismaModel> | $Enums.TradeStatus
+}
+
+export type EnumTradeDirectionWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.TradeDirection | Prisma.EnumTradeDirectionFieldRefInput<$PrismaModel>
+  in?: $Enums.TradeDirection[]
+  notIn?: $Enums.TradeDirection[]
+  not?: Prisma.NestedEnumTradeDirectionWithAggregatesFilter<$PrismaModel> | $Enums.TradeDirection
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumTradeDirectionFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumTradeDirectionFilter<$PrismaModel>
+}
+
+export type EnumTradeStatusWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.TradeStatus | Prisma.EnumTradeStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.TradeStatus[]
+  notIn?: $Enums.TradeStatus[]
+  not?: Prisma.NestedEnumTradeStatusWithAggregatesFilter<$PrismaModel> | $Enums.TradeStatus
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumTradeStatusFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumTradeStatusFilter<$PrismaModel>
+}
+
 export type NestedStringFilter<$PrismaModel = never> = {
   equals?: string | Prisma.StringFieldRefInput<$PrismaModel>
   in?: string[]
@@ -497,6 +531,40 @@ export type NestedJsonNullableFilterBase<$PrismaModel = never> = {
   array_starts_with?: runtime.InputJsonValue | Prisma.JsonFieldRefInput<$PrismaModel> | null
   array_ends_with?: runtime.InputJsonValue | Prisma.JsonFieldRefInput<$PrismaModel> | null
   not?: runtime.InputJsonValue | Prisma.JsonFieldRefInput<$PrismaModel> | Prisma.JsonNullValueFilter
+}
+
+export type NestedEnumTradeDirectionFilter<$PrismaModel = never> = {
+  equals?: $Enums.TradeDirection | Prisma.EnumTradeDirectionFieldRefInput<$PrismaModel>
+  in?: $Enums.TradeDirection[]
+  notIn?: $Enums.TradeDirection[]
+  not?: Prisma.NestedEnumTradeDirectionFilter<$PrismaModel> | $Enums.TradeDirection
+}
+
+export type NestedEnumTradeStatusFilter<$PrismaModel = never> = {
+  equals?: $Enums.TradeStatus | Prisma.EnumTradeStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.TradeStatus[]
+  notIn?: $Enums.TradeStatus[]
+  not?: Prisma.NestedEnumTradeStatusFilter<$PrismaModel> | $Enums.TradeStatus
+}
+
+export type NestedEnumTradeDirectionWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.TradeDirection | Prisma.EnumTradeDirectionFieldRefInput<$PrismaModel>
+  in?: $Enums.TradeDirection[]
+  notIn?: $Enums.TradeDirection[]
+  not?: Prisma.NestedEnumTradeDirectionWithAggregatesFilter<$PrismaModel> | $Enums.TradeDirection
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumTradeDirectionFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumTradeDirectionFilter<$PrismaModel>
+}
+
+export type NestedEnumTradeStatusWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.TradeStatus | Prisma.EnumTradeStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.TradeStatus[]
+  notIn?: $Enums.TradeStatus[]
+  not?: Prisma.NestedEnumTradeStatusWithAggregatesFilter<$PrismaModel> | $Enums.TradeStatus
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumTradeStatusFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumTradeStatusFilter<$PrismaModel>
 }
 
 
