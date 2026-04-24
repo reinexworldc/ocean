@@ -1,6 +1,6 @@
 .agent-actions-panel {
   margin-bottom: 12px;
-  max-width: 65%;
+  max-width: 480px;
 }
 
 .agent-actions-header {
@@ -23,6 +23,10 @@
   line-height: 15px;
   color: #444444;
   white-space: nowrap;
+}
+
+.agent-actions-savings--below {
+  margin-top: 6px;
 }
 
 .agent-actions-savings-icon {
@@ -205,8 +209,9 @@
 
 .agent-actions-item-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
+  width: 100%;
 }
 
 /* Expand toggle chevron */
@@ -217,7 +222,7 @@
   align-items: center;
   justify-content: center;
   width: 14px;
-  height: 14px;
+  height: 15px;
   flex-shrink: 0;
   cursor: pointer;
   color: #999;
@@ -239,8 +244,32 @@
 
 .agent-actions-item-expand-placeholder {
   width: 14px;
-  height: 14px;
+  height: 15px;
   flex-shrink: 0;
+}
+
+.agent-actions-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-actions-item-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agent-actions-item-row-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .agent-actions-item-label {
@@ -248,12 +277,33 @@
   font-weight: 500;
   font-size: 11px;
   line-height: 15px;
-  color: #737373;
+  color: #555;
+  white-space: nowrap;
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.agent-actions-item-vs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  color: #555;
+  background: #f0f0f0;
+  border-radius: 4px;
+  padding: 0 5px;
   white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.agent-actions-item-vs-sep {
+  font-weight: 400;
+  color: #999;
+  font-size: 9px;
 }
 
 .agent-actions-item-token {
@@ -273,6 +323,7 @@
   line-height: 15px;
   color: #737373;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .agent-actions-item-tx {
@@ -294,7 +345,7 @@
 
 .signal-processor {
   margin-bottom: 10px;
-  max-width: 65%;
+  max-width: 480px;
   padding: 11px 13px;
   background: #fafafa;
   border: 1px solid #e8e8e8;
@@ -302,6 +353,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  container-type: inline-size;
 }
 
 .signal-processor-header {
@@ -316,6 +368,10 @@
   font-weight: 600;
   color: #9ca3af;
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .signal-processor-cost {
@@ -372,6 +428,12 @@
   font-weight: 500;
   color: #9ca3af;
   white-space: nowrap;
+}
+
+@container (max-width: 320px) {
+  .signal-chain-amount {
+    display: none;
+  }
 }
 
 .signal-chain-tx {

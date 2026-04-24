@@ -6,14 +6,8 @@ function StepIcon({ active, isToolResult, isAnomaly, isModelSwap }) {
     return (
       <span className="thinking-stream__step-icon thinking-stream__anomaly-icon" aria-label="Anomaly">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-          <path
-            d="M5 1L9 9H1L5 1Z"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinejoin="round"
-          />
-          <line x1="5" y1="4.5" x2="5" y2="6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          <circle cx="5" cy="7.8" r="0.5" fill="currentColor" />
+          <circle cx="4.2" cy="4.2" r="2.6" stroke="currentColor" strokeWidth="1.3" />
+          <line x1="6.2" y1="6.2" x2="8.5" y2="8.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
         </svg>
       </span>
     );

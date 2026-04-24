@@ -56,7 +56,6 @@
 .account-panel {
   width: 231px;
   max-width: 231px;
-  min-height: 229px;
   background: #ffffff;
   border: 1px solid #dcdcdc;
   box-shadow: 0 4px 4px rgba(0, 0, 0, 0.15);
@@ -70,13 +69,55 @@
 .account-panel__header {
   box-sizing: border-box;
   min-height: 64px;
-  padding: 6px 16px;
+  padding: 6px 12px 6px 16px;
   border-bottom: 1.54px solid #d9d9d9;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.account-panel__collapse-btn {
+  padding: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.4);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.account-panel__collapse-btn:hover {
+  color: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.account-panel__collapse-btn svg {
+  transition: transform 0.2s ease;
+}
+
+.account-panel__collapse-btn--collapsed svg {
+  transform: rotate(-90deg);
+}
+
+.account-panel__collapsible {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.25s ease;
+}
+
+.account-panel__collapsible--hidden {
+  grid-template-rows: 0fr;
+}
+
+.account-panel__collapsible-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .account-panel__identity {

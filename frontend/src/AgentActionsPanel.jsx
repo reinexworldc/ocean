@@ -93,32 +93,26 @@ function ActionItem({ action, index }) {
           <span className="agent-actions-item-expand-placeholder" />
         )}
 
-        <span className="agent-actions-item-label">
-          {ACTION_LABELS[action.type] ?? action.type}
-        </span>
-        {action.tokenId ? <span className="agent-actions-item-token">{action.tokenId}</span> : null}
-        {compareBreakdown && action.externalCoin ? (
-          <span className="agent-actions-item-token agent-actions-item-token--external">
-            {action.summary?.externalToken?.symbol?.toUpperCase() ?? action.externalCoin.toUpperCase()}
-          </span>
-        ) : null}
+        <div className="agent-actions-item-body">
+          <div className="agent-actions-item-row-main">
+            <span className="agent-actions-item-label">
+              {ACTION_LABELS[action.type] ?? action.type}
+            </span>
+            <span className="agent-actions-item-price">
+              {rpcTotalCost ?? action.amountUsd ?? '—'}
+            </span>
+          </div>
 
-        {action.settlementTransaction ? (
-          <a
-            className="agent-actions-item-tx"
-            href={txUrlForArcTestnet(action.settlementTransaction)}
-            target="_blank"
-            rel="noreferrer"
-            title={action.settlementTransaction}
-            onClick={(e) => e.stopPropagation()}
-          >
-            Tx
-          </a>
-        ) : null}
-
-        <span className="agent-actions-item-price">
-          {rpcTotalCost ?? action.amountUsd ?? '—'}
-        </span>
+          {compareBreakdown && action.tokenId && action.externalCoin ? (
+            <span className="agent-actions-item-vs">
+              {action.tokenId}
+              <span className="agent-actions-item-vs-sep">vs</span>
+              {action.summary?.externalToken?.symbol?.toUpperCase() ?? action.externalCoin.toUpperCase()}
+            </span>
+          ) : action.tokenId ? (
+            <span className="agent-actions-item-token">{action.tokenId}</span>
+          ) : null}
+        </div>
       </div>
 
       {expanded && rpcBreakdown ? (
@@ -159,9 +153,6 @@ export function SignalProcessor({ action }) {
   const signal = typeof summary.signal === 'string' ? summary.signal : null;
   const confidence = typeof summary.confidence === 'number' ? summary.confidence : null;
   const reasoning = typeof summary.reasoning === 'string' ? summary.reasoning : null;
-  const innerTx = typeof summary.settlementTransaction === 'string' ? summary.settlementTransaction : null;
-  const innerTxUrl = txUrlForArcTestnet(innerTx);
-
   return (
     <div className={`signal-processor${signal ? ` signal-processor--${signal}` : ''}`}>
       <div className="signal-processor-header">
@@ -205,12 +196,7 @@ export function SignalProcessor({ action }) {
             <path d="M0 4H12M12 4L8 1M12 4L8 7" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </span>
-        <span className="signal-chain-node">
-          Token Profile
-          {innerTxUrl ? (
-            <a href={innerTxUrl} target="_blank" rel="noreferrer" className="signal-chain-tx" onClick={(e) => e.stopPropagation()}>↗</a>
-          ) : null}
-        </span>
+        <span className="signal-chain-node">Token Profile</span>
       </div>
     </div>
   );
@@ -260,9 +246,11 @@ function AgentActionsPanel({ actions }) {
           <span className="agent-actions-total">{formatUsd(totalUsd)}</span>
         </button>
 
-        <div className="agent-actions-savings" title={`On Ethereum the same calls would cost ~${formatSavings(totalUsd * ETH_GAS_MULTIPLIER)}`}>
-          <span>Saved <strong>~{formatSavings(ethSavings)}</strong> vs Ethereum</span>
-        </div>
+        {!expanded ? (
+          <div className="agent-actions-savings" title={`On Ethereum the same calls would cost ~${formatSavings(totalUsd * ETH_GAS_MULTIPLIER)}`}>
+            <span>Saved <strong>~{formatSavings(ethSavings)}</strong> vs Ethereum</span>
+          </div>
+        ) : null}
       </div>
 
       {expanded ? (
@@ -271,6 +259,12 @@ function AgentActionsPanel({ actions }) {
             <ActionItem key={`${action.type}-${action.tokenId ?? ''}-${index}`} action={action} index={index} />
           ))}
         </ul>
+      ) : null}
+
+      {expanded ? (
+        <div className="agent-actions-savings agent-actions-savings--below" title={`On Ethereum the same calls would cost ~${formatSavings(totalUsd * ETH_GAS_MULTIPLIER)}`}>
+          <span>Saved <strong>~{formatSavings(ethSavings)}</strong> vs Ethereum</span>
+        </div>
       ) : null}
     </div>
   );

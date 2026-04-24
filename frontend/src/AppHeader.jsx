@@ -110,6 +110,7 @@ function AppHeader({
   const canTriggerWalletAction = walletState !== 'connected' && !isWalletActionPending;
 
   const [showPopup, setShowPopup] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const popupTimerRef = useRef(null);
 
   useEffect(() => {
@@ -183,7 +184,20 @@ function AppHeader({
             <div className="account-panel__identity">
               <div className="greeting">HI, {displayName.toUpperCase()}!</div>
             </div>
+            <button
+              type="button"
+              className={`account-panel__collapse-btn${collapsed ? ' account-panel__collapse-btn--collapsed' : ''}`}
+              onClick={() => setCollapsed(c => !c)}
+              aria-label={collapsed ? 'Expand panel' : 'Collapse panel'}
+            >
+              <svg width="10" height="6" viewBox="0 0 10 6" fill="none" aria-hidden="true">
+                <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
           </div>
+
+          <div className={`account-panel__collapsible${collapsed ? ' account-panel__collapsible--hidden' : ''}`}>
+          <div className="account-panel__collapsible-inner">
 
           <div className="account-panel__section account-panel__section--wallet">
             <div className="account-panel__section-copy">
@@ -261,6 +275,9 @@ function AppHeader({
               <span>SIGN OUT</span>
               <img src={logoutIcon} alt="" aria-hidden="true" className="section-action-icon" />
             </button>
+          </div>
+
+          </div>
           </div>
         </div>
       </div>
