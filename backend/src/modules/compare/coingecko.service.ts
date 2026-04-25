@@ -61,6 +61,9 @@ type CacheEntry = { data: CoinGeckoMarketData; expiresAt: number };
 
 const CACHE_TTL_MS = 60_000;
 const COINGECKO_BASE = "https://api.coingecko.com/api/v3";
+const MAX_RETRIES = 4;
+/** Base delay in ms; doubles each attempt: 1s → 2s → 4s → 8s */
+const RETRY_BASE_MS = 1_000;
 
 @Injectable()
 export class CoinGeckoService {
@@ -89,21 +92,41 @@ export class CoinGeckoService {
     this.logger.log(`CoinGecko: fetching market data for ${coinId}`);
 
     const url = `${COINGECKO_BASE}/coins/${encodeURIComponent(coinId)}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false`;
-    const response = await fetch(url, {
-      headers: { Accept: "application/json" },
-    });
 
-    if (response.status === 404) {
-      throw new NotFoundException(
-        `CoinGecko does not recognise coin "${coinId}". Try a common symbol like bitcoin, ethereum, solana, dogecoin.`,
-      );
+    let response: Response | undefined;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      response = await fetch(url, { headers: { Accept: "application/json" } });
+
+      if (response.status === 404) {
+        throw new NotFoundException(
+          `CoinGecko does not recognise coin "${coinId}". Try a common symbol like bitcoin, ethereum, solana, dogecoin.`,
+        );
+      }
+
+      if (response.status === 429 || response.status === 503) {
+        if (attempt === MAX_RETRIES) break;
+
+        const retryAfterHeader = response.headers.get("retry-after");
+        const retryAfterMs = retryAfterHeader
+          ? Math.min(Number.parseInt(retryAfterHeader, 10) * 1_000 || RETRY_BASE_MS, 30_000)
+          : RETRY_BASE_MS * 2 ** (attempt - 1);
+
+        this.logger.warn(
+          `CoinGecko rate limited (${response.status}) for "${coinId}". Retrying in ${retryAfterMs}ms (attempt ${attempt}/${MAX_RETRIES}).`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
+        continue;
+      }
+
+      break;
     }
 
-    if (!response.ok) {
-      throw new Error(`CoinGecko API returned ${response.status} for coin "${coinId}".`);
+    if (!response!.ok) {
+      throw new Error(`CoinGecko API returned ${response!.status} for coin "${coinId}" after ${MAX_RETRIES} attempts.`);
     }
 
-    const raw = (await response.json()) as Record<string, unknown>;
+    const raw = (await response!.json()) as Record<string, unknown>;
     const md = raw.market_data as Record<string, unknown> | undefined;
     const currentPrice = this.asRecord(md?.current_price);
     const marketCap = this.asRecord(md?.market_cap);

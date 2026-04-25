@@ -46,6 +46,11 @@ export class ChatAgentService {
   );
 
   private txUrlForArcTestnet(txHash: string) {
+    // GatewayWalletBatched returns a UUID as the settlement "transaction" — not an on-chain hash.
+    // Skip the explorer link for these until the facilitator exposes the real tx hash.
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(txHash)) {
+      return undefined;
+    }
     return `https://testnet.arcscan.app/tx/${txHash}`;
   }
 

@@ -2,7 +2,7 @@
 
 > **Every API call is a USDC transaction. Every insight has a price. Every price is a fraction of a cent.**
 
-Ocean is a crypto market intelligence and trading app where an AI agent pays for its own data in real time — using Circle's x402 nanopayments settled on Arc L1. Instead of a flat subscription or API key, every query the agent makes triggers a live USDC micro-payment on-chain, with a settlement transaction link you can open on ArcScan.
+Ocean is a crypto market intelligence and trading app where an AI agent pays for its own data in real time — using Circle's x402 nanopayments settled on Arc L1. Instead of a flat subscription or API key, every query the agent makes triggers a live USDC micro-payment on-chain.
 
 ---
 

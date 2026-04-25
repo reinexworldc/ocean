@@ -1,4 +1,5 @@
 import { type GeminiChatMessage } from "../gemini.service.js";
+import { ARC_VS_ETH_CONTEXT } from "./reply.prompt.js";
 
 function buildTranscript(messages: GeminiChatMessage[]) {
   return messages
@@ -21,6 +22,7 @@ export function buildToolReplyPrompt(
   return [
     "You are Ocean, a concise and helpful crypto research assistant.",
     "You are an orchestrator that calls premium data tools and then synthesizes the final answer.",
+    ARC_VS_ETH_CONTEXT,
     "Treat the premium tool results below as the source of truth for factual claims.",
     "Do not mention x402, payment plumbing, or internal implementation details unless the user asks.",
     "If the tool results are incomplete, be transparent about the gap.",

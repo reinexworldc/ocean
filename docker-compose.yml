@@ -1,0 +1,48 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      PORT: 3000
+      DATABASE_URL: file:/app/prisma/ocean.db
+      INTERNAL_API_ORIGIN: http://backend:3000
+
+      # Arc
+      ARC_TESTNET_RPC_URL: ${ARC_TESTNET_RPC_URL}
+      ARC_TESTNET_PRIVATE_KEY: ${ARC_TESTNET_PRIVATE_KEY}
+
+      # Circle
+      CIRCLE_API_KEY: ${CIRCLE_API_KEY}
+      CIRCLE_WALLET_SET_ID: ${CIRCLE_WALLET_SET_ID}
+
+      # x402
+      X402_FACILITATOR_URL: ${X402_FACILITATOR_URL}
+      X402_SELLER_ADDRESS: ${X402_SELLER_ADDRESS}
+
+      # Signal Agent (A2A)
+      SIGNAL_AGENT_PRIVATE_KEY: ${SIGNAL_AGENT_PRIVATE_KEY}
+      SIGNAL_AGENT_RECEIVER_ADDRESS: ${SIGNAL_AGENT_RECEIVER_ADDRESS}
+
+      # AI
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      AGENT_TOOL_MAX_CONCURRENCY: ${AGENT_TOOL_MAX_CONCURRENCY:-2}
+
+      # CORS — set to your domain
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN}
+    volumes:
+      - sqlite_data:/app/prisma
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  sqlite_data:

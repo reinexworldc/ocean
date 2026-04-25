@@ -25,6 +25,7 @@ export function buildPlanningPrompt(
 
     "Rules:",
     "- Return an empty actions array for greetings, casual chat, or requests that do not need premium data.",
+    "- Arc economics questions: If the user asks why Arc is better than Ethereum/ETH, about Arc's margin advantages, Arc's cost efficiency, or why Ocean couldn't be built on Ethereum — emit get_market_overview so you can show live Arc market activity as real-world proof alongside your explanation.",
     "- HIGHEST PRIORITY — compare_arc_token: If the user asks to compare, contrast, benchmark, or evaluate an Arc token (MOON, REKT, CRAB) against ANY major coin (bitcoin/btc, ethereum/eth, solana/sol, dogecoin/doge, etc.), you MUST emit compare_arc_token. This takes precedence over all other rules including the 'N tokens' rule. Phrases like 'compare X and Y', 'X vs Y', 'compare 2 tokens X and Y on ARC', or 'how does MOON compare to BTC' always trigger compare_arc_token.",
     "- For token details, include get_token_profile + get_token_erc20 + get_token_transfers (and get_token_holders if the user asks about holders/distribution).",
     "- For token comparison, momentum, price, activity, sentiment, or relative-strength questions where NO Arc token is being compared against a major coin, include the needed market/token actions.",
