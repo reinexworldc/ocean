@@ -41,7 +41,7 @@ export class X402Service {
     const resolvedCharge = this.resolveCharge(charge);
     const routeKey = `${this.getRequestMethod(request)} ${this.getRequestPath(request)}`;
 
-    const routes: RoutesConfig = {
+    const routes = {
       [routeKey]: {
         accepts: {
           scheme: "exact",
@@ -55,7 +55,7 @@ export class X402Service {
         resource: resolvedCharge.resource,
         mimeType: resolvedCharge.mimeType ?? "application/json",
       },
-    };
+    } as unknown as RoutesConfig;
 
     return paymentMiddleware(
       routes,
